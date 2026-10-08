@@ -31,6 +31,10 @@ const MetadataSubscriptionExpiresAt = "subscription_expires_at"
 //  2. Credentials with a known future deadline, nearest first.
 //  3. Credentials with no known deadline, in fill-first order.
 //
+// Fable requests rank Claude credentials by their Fable weekly reset instead, read from
+// Anthropic's usage endpoint in the background (see fableUsageCache). A credential whose Fable
+// window is full drops to the last tier.
+//
 // Ties keep the deterministic ID order used by FillFirstSelector.
 type ExpiringFirstSelector struct{}
 
@@ -43,6 +47,9 @@ func (s *ExpiringFirstSelector) Pick(ctx context.Context, provider, model string
 		return nil, err
 	}
 	available = preferCodexWebsocketAuths(ctx, provider, available)
+	if isFableModel(model) {
+		return pickExpiringFirstWith(available, now, defaultFableUsageCache), nil
+	}
 	return pickExpiringFirst(available, now), nil
 }
 
@@ -53,11 +60,21 @@ const (
 )
 
 func pickExpiringFirst(available []*Auth, now time.Time) *Auth {
+	return pickExpiringFirstWith(available, now, nil)
+}
+
+// pickExpiringFirstWith ranks by Fable usage when fable is non-nil.
+func pickExpiringFirstWith(available []*Auth, now time.Time, fable *fableUsageCache) *Auth {
 	var best *Auth
 	bestTier := math.MaxInt
 	var bestDeadline time.Time
 	for _, candidate := range available {
 		tier, deadline := expiringFirstRank(candidate, now)
+		if fable != nil {
+			if usage, ok := fable.lookup(candidate, now); ok {
+				tier, deadline = fableRank(candidate, usage, now, tier, deadline)
+			}
+		}
 		if best == nil || tier < bestTier || (tier == bestTier && tier == expiringTierDeadline && deadline.Before(bestDeadline)) {
 			best, bestTier, bestDeadline = candidate, tier, deadline
 		}
@@ -76,6 +93,25 @@ func expiringFirstRank(auth *Auth, now time.Time) (int, time.Time) {
 		return expiringTierDeadline, deadline
 	}
 	return expiringTierUnknown, time.Time{}
+}
+
+// fableRank ranks a credential by its Fable weekly window, keeping the given rank when the
+// usage response had no Fable window.
+func fableRank(auth *Auth, usage fableUsage, now time.Time, tier int, deadline time.Time) (int, time.Time) {
+	if !usage.HasLimit {
+		return tier, deadline
+	}
+	if usage.Percent >= 100 {
+		return expiringTierUnknown, time.Time{}
+	}
+	if !usage.ResetsAt.After(now) {
+		return tier, deadline
+	}
+	best := usage.ResetsAt
+	if end, ok := parseExpiryValue(auth.Metadata[MetadataSubscriptionExpiresAt]); ok && end.After(now) && end.Before(best) {
+		best = end
+	}
+	return expiringTierDeadline, best
 }
 
 // ExpiringFirstDeadline returns the earliest future time at which the credential's unused quota
