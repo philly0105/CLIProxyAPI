@@ -1,0 +1,179 @@
+package auth
+
+import (
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"math"
+	"strconv"
+	"strings"
+	"time"
+
+	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
+)
+
+// MetadataSubscriptionExpiresAt is the optional top-level auth JSON field that records when a
+// credential's subscription ends. Accepted forms: RFC 3339 timestamp, YYYY-MM-DD date, or Unix
+// seconds/milliseconds.
+const MetadataSubscriptionExpiresAt = "subscription_expires_at"
+
+// ExpiringFirstSelector burns the credential whose remaining quota will be lost soonest.
+//
+// Each available credential gets a deadline: the earliest of its subscription end and its
+// long-window quota reset (Claude 7-day window, Codex secondary window, Devin weekly window).
+// Unused quota disappears at that deadline, so the credential with the nearest deadline is
+// used first and the others are saved for later. When it hits a rate limit, normal cooldown
+// removes it from the candidates and the next-nearest deadline takes over.
+//
+// Ranking, from most to least preferred:
+//  1. Credentials from quota-reporting providers that have not been observed yet. One request
+//     teaches the selector their reset time, so they are probed before ranking settles.
+//  2. Credentials with a known future deadline, nearest first.
+//  3. Credentials with no known deadline, in fill-first order.
+//
+// Ties keep the deterministic ID order used by FillFirstSelector.
+type ExpiringFirstSelector struct{}
+
+// Pick selects the available credential with the nearest quota-loss deadline.
+func (s *ExpiringFirstSelector) Pick(ctx context.Context, provider, model string, opts cliproxyexecutor.Options, auths []*Auth) (*Auth, error) {
+	_ = opts
+	now := time.Now()
+	available, err := getSelectorAvailableAuths(ctx, auths, provider, model, now)
+	if err != nil {
+		return nil, err
+	}
+	available = preferCodexWebsocketAuths(ctx, provider, available)
+	return pickExpiringFirst(available, now), nil
+}
+
+const (
+	expiringTierProbe = iota
+	expiringTierDeadline
+	expiringTierUnknown
+)
+
+func pickExpiringFirst(available []*Auth, now time.Time) *Auth {
+	var best *Auth
+	bestTier := math.MaxInt
+	var bestDeadline time.Time
+	for _, candidate := range available {
+		tier, deadline := expiringFirstRank(candidate, now)
+		if best == nil || tier < bestTier || (tier == bestTier && tier == expiringTierDeadline && deadline.Before(bestDeadline)) {
+			best, bestTier, bestDeadline = candidate, tier, deadline
+		}
+	}
+	return best
+}
+
+func expiringFirstRank(auth *Auth, now time.Time) (int, time.Time) {
+	if auth == nil {
+		return expiringTierUnknown, time.Time{}
+	}
+	if ProviderSupportsQuotaObservation(auth.Provider) && auth.Quota.ObservedAt.IsZero() && len(auth.Quota.Signals) == 0 {
+		return expiringTierProbe, time.Time{}
+	}
+	if deadline, ok := ExpiringFirstDeadline(auth, now); ok {
+		return expiringTierDeadline, deadline
+	}
+	return expiringTierUnknown, time.Time{}
+}
+
+// ExpiringFirstDeadline returns the earliest future time at which the credential's unused quota
+// is lost, or false when nothing is known.
+func ExpiringFirstDeadline(auth *Auth, now time.Time) (time.Time, bool) {
+	if auth == nil {
+		return time.Time{}, false
+	}
+	var best time.Time
+	consider := func(t time.Time, ok bool) {
+		if ok && t.After(now) && (best.IsZero() || t.Before(best)) {
+			best = t
+		}
+	}
+	consider(parseExpiryValue(auth.Metadata[MetadataSubscriptionExpiresAt]))
+	consider(codexSubscriptionActiveUntil(auth))
+	for key, value := range auth.Quota.Signals {
+		switch strings.ToLower(strings.TrimSpace(key)) {
+		case "anthropic-ratelimit-unified-7d-reset", "x-codex-secondary-reset-at", "weekly_quota_reset_at", "plan_end":
+			consider(parseExpiryValue(value))
+		case "x-codex-secondary-reset-after-seconds":
+			if seconds, errParse := strconv.ParseFloat(strings.TrimSpace(value), 64); errParse == nil && seconds > 0 && !auth.Quota.ObservedAt.IsZero() {
+				consider(auth.Quota.ObservedAt.Add(time.Duration(seconds*float64(time.Second))), true)
+			}
+		}
+	}
+	return best, !best.IsZero()
+}
+
+// codexSubscriptionActiveUntil reads chatgpt_subscription_active_until from a Codex id_token.
+func codexSubscriptionActiveUntil(auth *Auth) (time.Time, bool) {
+	if auth == nil || !strings.EqualFold(strings.TrimSpace(auth.Provider), "codex") {
+		return time.Time{}, false
+	}
+	idToken, _ := auth.Metadata["id_token"].(string)
+	parts := strings.Split(strings.TrimSpace(idToken), ".")
+	if len(parts) != 3 {
+		return time.Time{}, false
+	}
+	payload, errDecode := base64.RawURLEncoding.DecodeString(strings.TrimRight(parts[1], "="))
+	if errDecode != nil {
+		return time.Time{}, false
+	}
+	var claims struct {
+		Auth struct {
+			ActiveUntil any `json:"chatgpt_subscription_active_until"`
+		} `json:"https://api.openai.com/auth"`
+	}
+	if errUnmarshal := json.Unmarshal(payload, &claims); errUnmarshal != nil {
+		return time.Time{}, false
+	}
+	return parseExpiryValue(claims.Auth.ActiveUntil)
+}
+
+// parseExpiryValue accepts RFC 3339 timestamps, YYYY-MM-DD dates (UTC midnight), and Unix
+// seconds or milliseconds as strings or JSON numbers.
+func parseExpiryValue(raw any) (time.Time, bool) {
+	switch value := raw.(type) {
+	case nil:
+		return time.Time{}, false
+	case string:
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return time.Time{}, false
+		}
+		if ts, errParse := time.Parse(time.RFC3339, value); errParse == nil {
+			return ts, true
+		}
+		if ts, errParse := time.Parse("2006-01-02", value); errParse == nil {
+			return ts, true
+		}
+		if number, errParse := strconv.ParseFloat(value, 64); errParse == nil {
+			return unixExpiry(number)
+		}
+		return time.Time{}, false
+	case float64:
+		return unixExpiry(value)
+	case json.Number:
+		number, errParse := value.Float64()
+		if errParse != nil {
+			return time.Time{}, false
+		}
+		return unixExpiry(number)
+	case int:
+		return unixExpiry(float64(value))
+	case int64:
+		return unixExpiry(float64(value))
+	default:
+		return time.Time{}, false
+	}
+}
+
+func unixExpiry(number float64) (time.Time, bool) {
+	if number <= 0 || math.IsNaN(number) || math.IsInf(number, 0) {
+		return time.Time{}, false
+	}
+	if number > 1e12 {
+		return time.UnixMilli(int64(number)).UTC(), true
+	}
+	return time.Unix(int64(number), 0).UTC(), true
+}
