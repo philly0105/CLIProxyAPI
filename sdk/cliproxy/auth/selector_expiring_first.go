@@ -35,6 +35,9 @@ const MetadataSubscriptionExpiresAt = "subscription_expires_at"
 // Anthropic's usage endpoint in the background (see fableUsageCache). A credential whose Fable
 // window is full drops to the last tier.
 //
+// Other Claude requests are spread instead: each goes to the credential with the lowest
+// 5-hour utilization (see pickLeastFiveHourUsage).
+//
 // Ties keep the deterministic ID order used by FillFirstSelector.
 type ExpiringFirstSelector struct{}
 
@@ -50,7 +53,70 @@ func (s *ExpiringFirstSelector) Pick(ctx context.Context, provider, model string
 	if isFableModel(model) {
 		return pickExpiringFirstWith(available, now, defaultFableUsageCache), nil
 	}
+	if allClaude(available) {
+		return pickLeastFiveHourUsage(available, now), nil
+	}
 	return pickExpiringFirst(available, now), nil
+}
+
+func allClaude(auths []*Auth) bool {
+	for _, auth := range auths {
+		if auth == nil || !strings.EqualFold(strings.TrimSpace(auth.Provider), "claude") {
+			return false
+		}
+	}
+	return len(auths) > 0
+}
+
+// pickLeastFiveHourUsage spreads non-Fable Claude traffic by sending each request to the
+// credential with the lowest 5-hour window utilization. Never-observed credentials are probed
+// first, credentials without a 5-hour reading go last, and ties prefer the window that resets
+// sooner, then ID order.
+func pickLeastFiveHourUsage(available []*Auth, now time.Time) *Auth {
+	var best *Auth
+	bestTier := math.MaxInt
+	var bestUsage float64
+	var bestReset time.Time
+	for _, candidate := range available {
+		tier, usage, reset := fiveHourRank(candidate, now)
+		better := best == nil || tier < bestTier
+		if !better && tier == bestTier && tier == expiringTierDeadline {
+			better = usage < bestUsage || (usage == bestUsage && !reset.IsZero() && (bestReset.IsZero() || reset.Before(bestReset)))
+		}
+		if better {
+			best, bestTier, bestUsage, bestReset = candidate, tier, usage, reset
+		}
+	}
+	return best
+}
+
+// fiveHourRank reports a credential's tier, 5-hour utilization (0-1), and 5-hour reset. A
+// window whose reset has passed counts as empty.
+func fiveHourRank(auth *Auth, now time.Time) (int, float64, time.Time) {
+	if auth.Quota.ObservedAt.IsZero() && len(auth.Quota.Signals) == 0 {
+		return expiringTierProbe, 0, time.Time{}
+	}
+	var utilRaw, resetRaw string
+	for key, value := range auth.Quota.Signals {
+		switch strings.ToLower(strings.TrimSpace(key)) {
+		case "anthropic-ratelimit-unified-5h-utilization":
+			utilRaw = value
+		case "anthropic-ratelimit-unified-5h-reset":
+			resetRaw = value
+		}
+	}
+	usage, errParse := strconv.ParseFloat(strings.TrimSpace(utilRaw), 64)
+	if errParse != nil || math.IsNaN(usage) {
+		return expiringTierUnknown, 0, time.Time{}
+	}
+	reset, ok := parseExpiryValue(resetRaw)
+	if ok && !reset.After(now) {
+		return expiringTierDeadline, 0, time.Time{}
+	}
+	if !ok {
+		reset = time.Time{}
+	}
+	return expiringTierDeadline, usage, reset
 }
 
 const (
