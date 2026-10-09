@@ -29,12 +29,80 @@ func pickExpiring(t *testing.T, provider string, auths ...*Auth) string {
 
 func unixString(ts time.Time) string { return strconv.FormatInt(ts.Unix(), 10) }
 
+// pickByDeadline exercises the deadline ranking that Fable and non-Claude requests use.
+func pickByDeadline(auths ...*Auth) string { return pickExpiringFirst(auths, time.Now()).ID }
+
+func fiveHour(id string, now time.Time, utilization string, reset time.Time) *Auth {
+	return observedClaude(id, now, map[string]string{
+		"Anthropic-Ratelimit-Unified-5h-Utilization": utilization,
+		"Anthropic-Ratelimit-Unified-5h-Reset":       unixString(reset),
+		"Anthropic-Ratelimit-Unified-7d-Reset":       unixString(now.Add(time.Hour)),
+	})
+}
+
+func TestExpiringFirst_ClaudePrefersLowestFiveHourUsage(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	busy := fiveHour("a", now, "0.62", now.Add(2*time.Hour))
+	idle := fiveHour("b", now, "0.18", now.Add(4*time.Hour))
+	mid := fiveHour("c", now, "0.40", now.Add(time.Hour))
+	if got := pickExpiring(t, "claude", busy, idle, mid); got != "b" {
+		t.Fatalf("picked %q, want b (lowest 5h usage)", got)
+	}
+}
+
+func TestExpiringFirst_ClaudeExpiredFiveHourWindowCountsAsEmpty(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	reset := fiveHour("a", now, "0.90", now.Add(-time.Minute))
+	low := fiveHour("b", now, "0.05", now.Add(time.Hour))
+	if got := pickExpiring(t, "claude", low, reset); got != "a" {
+		t.Fatalf("picked %q, want a (its 5h window already reset)", got)
+	}
+}
+
+func TestExpiringFirst_ClaudeFiveHourTiePrefersSoonerReset(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	later := fiveHour("a", now, "0.30", now.Add(4*time.Hour))
+	sooner := fiveHour("b", now, "0.30", now.Add(time.Hour))
+	if got := pickExpiring(t, "claude", later, sooner); got != "b" {
+		t.Fatalf("picked %q, want b (same usage, resets sooner)", got)
+	}
+}
+
+func TestExpiringFirst_ClaudeFiveHourProbeAndUnknownTiers(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	known := fiveHour("a", now, "0.50", now.Add(time.Hour))
+	noReading := observedClaude("b", now, map[string]string{"Anthropic-Ratelimit-Unified-Status": "allowed"})
+	if got := pickExpiring(t, "claude", noReading, known); got != "a" {
+		t.Fatalf("picked %q, want a (b has no 5h reading)", got)
+	}
+	unobserved := &Auth{ID: "z", Provider: "claude"}
+	if got := pickExpiring(t, "claude", known, noReading, unobserved); got != "z" {
+		t.Fatalf("picked %q, want z (never observed, probe first)", got)
+	}
+}
+
+func TestExpiringFirst_MixedPoolKeepsDeadlineRanking(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	claude := fiveHour("a", now, "0.90", now.Add(time.Hour))
+	codex := &Auth{ID: "b", Provider: "codex", Quota: QuotaState{ObservedAt: now, Signals: map[string]string{
+		"X-Codex-Secondary-Reset-At": unixString(now.Add(48 * time.Hour)),
+	}}}
+	if got := pickExpiring(t, "mixed", codex, claude); got != "a" {
+		t.Fatalf("picked %q, want a (mixed pools rank by deadline)", got)
+	}
+}
+
 func TestExpiringFirst_PrefersSoonerWeeklyReset(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
 	later := observedClaude("a", now, map[string]string{"Anthropic-Ratelimit-Unified-7d-Reset": unixString(now.Add(5 * 24 * time.Hour))})
 	sooner := observedClaude("b", now, map[string]string{"Anthropic-Ratelimit-Unified-7d-Reset": unixString(now.Add(12 * time.Hour))})
-	if got := pickExpiring(t, "claude", later, sooner); got != "b" {
+	if got := pickByDeadline(later, sooner); got != "b" {
 		t.Fatalf("picked %q, want b (resets sooner)", got)
 	}
 }
@@ -44,7 +112,7 @@ func TestExpiringFirst_ProbesUnobservedQuotaProviderFirst(t *testing.T) {
 	now := time.Now()
 	known := observedClaude("a", now, map[string]string{"Anthropic-Ratelimit-Unified-7d-Reset": unixString(now.Add(time.Hour))})
 	unobserved := &Auth{ID: "z", Provider: "claude"}
-	if got := pickExpiring(t, "claude", known, unobserved); got != "z" {
+	if got := pickByDeadline(known, unobserved); got != "z" {
 		t.Fatalf("picked %q, want z (never observed, probe first)", got)
 	}
 }
@@ -54,7 +122,7 @@ func TestExpiringFirst_KnownDeadlineBeatsObservedWithoutDeadline(t *testing.T) {
 	now := time.Now()
 	noDeadline := observedClaude("a", now, map[string]string{"Anthropic-Ratelimit-Unified-Status": "allowed"})
 	known := observedClaude("b", now, map[string]string{"Anthropic-Ratelimit-Unified-7d-Reset": unixString(now.Add(6 * 24 * time.Hour))})
-	if got := pickExpiring(t, "claude", noDeadline, known); got != "b" {
+	if got := pickByDeadline(noDeadline, known); got != "b" {
 		t.Fatalf("picked %q, want b (has a deadline)", got)
 	}
 }
@@ -65,7 +133,7 @@ func TestExpiringFirst_SubscriptionEndBeatsLaterReset(t *testing.T) {
 	resetSoon := observedClaude("a", now, map[string]string{"Anthropic-Ratelimit-Unified-7d-Reset": unixString(now.Add(3 * 24 * time.Hour))})
 	expiring := observedClaude("b", now, map[string]string{"Anthropic-Ratelimit-Unified-7d-Reset": unixString(now.Add(6 * 24 * time.Hour))})
 	expiring.Metadata = map[string]any{MetadataSubscriptionExpiresAt: now.Add(24 * time.Hour).UTC().Format("2006-01-02")}
-	if got := pickExpiring(t, "claude", resetSoon, expiring); got != "b" {
+	if got := pickByDeadline(resetSoon, expiring); got != "b" {
 		t.Fatalf("picked %q, want b (subscription ends within ~1 day)", got)
 	}
 }
@@ -76,7 +144,7 @@ func TestExpiringFirst_IgnoresPastDeadlines(t *testing.T) {
 	stale := observedClaude("a", now, map[string]string{"Anthropic-Ratelimit-Unified-7d-Reset": unixString(now.Add(-time.Hour))})
 	stale.Metadata = map[string]any{MetadataSubscriptionExpiresAt: "2001-01-01"}
 	future := observedClaude("b", now, map[string]string{"Anthropic-Ratelimit-Unified-7d-Reset": unixString(now.Add(4 * 24 * time.Hour))})
-	if got := pickExpiring(t, "claude", stale, future); got != "b" {
+	if got := pickByDeadline(stale, future); got != "b" {
 		t.Fatalf("picked %q, want b (a's deadlines are in the past)", got)
 	}
 }
