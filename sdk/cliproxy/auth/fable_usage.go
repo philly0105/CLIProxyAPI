@@ -99,9 +99,18 @@ func (c *fableUsageCache) refresh(auth *Auth) {
 }
 
 func fetchClaudeFableUsage(ctx context.Context, auth *Auth) (fableUsage, error) {
+	body, errFetch := fetchClaudeUsageBody(ctx, auth)
+	if errFetch != nil {
+		return fableUsage{}, errFetch
+	}
+	return parseFableUsage(body)
+}
+
+// fetchClaudeUsageBody returns the raw response of Anthropic's OAuth usage endpoint for auth.
+func fetchClaudeUsageBody(ctx context.Context, auth *Auth) ([]byte, error) {
 	req, errReq := http.NewRequestWithContext(ctx, http.MethodGet, claudeUsageURL, nil)
 	if errReq != nil {
-		return fableUsage{}, errReq
+		return nil, errReq
 	}
 	req.Header.Set("User-Agent", "claude-cli/2.1.280 (external, cli)")
 	req.Header.Set("Authorization", "Bearer "+authAccessToken(auth))
@@ -116,17 +125,17 @@ func fetchClaudeFableUsage(ctx context.Context, auth *Auth) (fableUsage, error) 
 	}
 	resp, errDo := client.Do(req)
 	if errDo != nil {
-		return fableUsage{}, errDo
+		return nil, errDo
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, errRead := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if errRead != nil {
-		return fableUsage{}, errRead
+		return nil, errRead
 	}
 	if resp.StatusCode != http.StatusOK {
-		return fableUsage{}, fmt.Errorf("claude usage: status %d", resp.StatusCode)
+		return nil, fmt.Errorf("claude usage: status %d", resp.StatusCode)
 	}
-	return parseFableUsage(body)
+	return body, nil
 }
 
 // parseFableUsage extracts the Fable weekly window from a usage response. It prefers the active

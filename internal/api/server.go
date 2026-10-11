@@ -47,6 +47,8 @@ type Server struct {
 	// muxBaseListener is the shared TCP listener used to serve both HTTP and Redis protocol traffic.
 	listenerMu      sync.Mutex
 	muxBaseListener net.Listener
+	// quotaHistoryCancel stops background quota sampling.
+	quotaHistoryCancel context.CancelFunc
 
 	// muxHTTPListener receives HTTP connections selected by the multiplexer.
 	muxHTTPListener *muxListener
@@ -336,6 +338,14 @@ func (s *Server) Start() error {
 	s.muxHTTPListener = httpListener
 	s.listenerMu.Unlock()
 
+	if s.mgmt != nil && (cfg == nil || !cfg.Home.Enabled) {
+		quotaCtx, quotaCancel := context.WithCancel(context.Background())
+		s.listenerMu.Lock()
+		s.quotaHistoryCancel = quotaCancel
+		s.listenerMu.Unlock()
+		s.mgmt.StartQuotaHistory(quotaCtx)
+	}
+
 	httpErrCh := make(chan error, 1)
 	acceptErrCh := make(chan error, 1)
 
@@ -422,7 +432,12 @@ func (s *Server) Stop(ctx context.Context) error {
 	s.muxHTTPListener = nil
 	muxBase := s.muxBaseListener
 	s.muxBaseListener = nil
+	quotaCancel := s.quotaHistoryCancel
+	s.quotaHistoryCancel = nil
 	s.listenerMu.Unlock()
+	if quotaCancel != nil {
+		quotaCancel()
+	}
 
 	if muxHTTP != nil {
 		_ = muxHTTP.Close()

@@ -60,4 +60,7 @@ func (s *Server) registerManagementV8Routes() {
 	v8.GET("/plugins/:id/quota", s.mgmt.GetPluginQuota)
 	v8.POST("/plugins/:id/quota", s.mgmt.FetchPluginQuota)
 	v8.DELETE("/plugins/:id/quota", s.mgmt.ResetPluginQuota)
+
+	v8.GET("/quota/history", s.mgmt.GetQuotaHistory)
+	v8.POST("/quota/history/refresh", s.mgmt.RefreshQuotaHistory)
 }

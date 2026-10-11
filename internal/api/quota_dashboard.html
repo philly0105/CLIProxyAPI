@@ -1,0 +1,659 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quota Management</title>
+<style>
+  :root {
+    --bg: #0f0d0c; --surface: #171412; --surface-2: #1f1b18; --border: #2c2622;
+    --ink: #f2ece7; --ink-2: #b8ada5; --ink-3: #7d736c;
+    --accent: #e0825f; --accent-soft: rgba(224,130,95,.16); --accent-fill-top: rgba(224,130,95,.30);
+    --grid: #2a2420; --good: #5cc28a; --warn: #e5b45a; --bad: #e46a5e;
+    --mono: ui-monospace, SFMono-Regular, Consolas, monospace;
+  }
+  :root.light {
+    --bg: #f6f3f0; --surface: #ffffff; --surface-2: #f3eeea; --border: #e4dcd5;
+    --ink: #1d1916; --ink-2: #5b524c; --ink-3: #8c827b;
+    --accent: #b9532f; --accent-soft: rgba(185,83,47,.12); --accent-fill-top: rgba(185,83,47,.22);
+    --grid: #ece5df; --good: #2e8b57; --warn: #a8761c; --bad: #c0392b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  button, select, input { font: inherit; color: inherit; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 24px 20px 64px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; }
+  header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+  h1 { font-size: 26px; margin: 0; letter-spacing: -.01em; }
+  .sub { font-family: var(--mono); font-size: 12px; color: var(--ink-3); margin-top: 4px; }
+  .sub b { color: var(--good); font-weight: 500; }
+  .btn { background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 6px 14px; cursor: pointer; font-size: 13px; }
+  .btn:hover { border-color: var(--ink-3); }
+  .btn.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .btn.small { padding: 3px 10px; font-size: 12px; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .icon-btn { background: none; border: 1px solid var(--border); border-radius: 8px; width: 32px; height: 32px; cursor: pointer; }
+  .row { display: flex; align-items: center; gap: 8px; }
+  .spacer { flex: 1; }
+  .summary { padding: 18px 20px 12px; }
+  .headline { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .headline .big { font-size: 30px; font-weight: 650; color: var(--accent); font-variant-numeric: tabular-nums; }
+  .headline .of { color: var(--ink-2); }
+  .headline .rate { color: var(--ink-3); font-size: 13px; margin-left: 8px; }
+  .tabs { display: flex; gap: 4px; margin: 12px 0 6px; border-bottom: 1px solid var(--border); }
+  .tab { background: none; border: 0; border-bottom: 2px solid transparent; padding: 6px 10px; cursor: pointer; color: var(--ink-3); font-size: 13px; }
+  .tab.on { color: var(--accent); border-color: var(--accent); }
+  .controls { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--ink-3); margin: 8px 0; }
+  .legend-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-right: 5px; }
+  .legend-dash { display: inline-block; width: 14px; border-top: 2px dashed var(--accent); margin-right: 5px; vertical-align: middle; }
+  select { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 3px 8px; font-size: 12px; }
+  .chart { position: relative; height: 260px; }
+  .chart svg { display: block; width: 100%; height: 100%; }
+  .axis { fill: var(--ink-3); font-size: 11px; font-family: var(--mono); }
+  .tooltip { position: absolute; pointer-events: none; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px; font-size: 12px; white-space: nowrap; display: none; box-shadow: 0 6px 18px rgba(0,0,0,.25); }
+  .tooltip .v { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tooltip .t { color: var(--ink-3); }
+  .foot { display: flex; justify-content: space-between; font-size: 12px; color: var(--ink-2); padding: 6px 0 2px; flex-wrap: wrap; gap: 8px; }
+  .settings { display: none; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); padding: 8px 0 2px; }
+  .settings.on { display: flex; }
+  .linkish { background: none; border: 0; color: var(--ink-2); cursor: pointer; font-size: 12px; padding: 0; }
+  .toolbar { display: flex; gap: 10px; align-items: center; margin: 18px 0 10px; }
+  .search { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; }
+  .group-head { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; font-size: 13px; }
+  .group-head .muted { color: var(--ink-3); font-size: 12px; }
+  .cred { display: grid; grid-template-columns: minmax(170px, 1.3fr) repeat(3, minmax(120px, 1fr)) auto; gap: 16px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+  .cred:last-child { border-bottom: 0; }
+  .cred .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cred .meta { font-size: 12px; color: var(--ink-3); }
+  .cred .meta .cool { color: var(--bad); }
+  .cred .meta .err { color: var(--warn); }
+  .win { font-size: 12px; min-width: 0; }
+  .win .top { display: flex; justify-content: space-between; color: var(--ink-2); }
+  .win .top b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .win.na { opacity: .4; }
+  .bar { height: 5px; border-radius: 3px; background: var(--grid); margin: 4px 0 3px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; border-radius: 3px; }
+  .win .when { color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .actions { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
+  .empty { padding: 28px; text-align: center; color: var(--ink-3); }
+  .login { max-width: 380px; margin: 12vh auto; padding: 24px; }
+  .login input { width: 100%; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px; margin: 12px 0; }
+  .error-text { color: var(--bad); font-size: 12px; min-height: 16px; }
+  table.data { width: 100%; border-collapse: collapse; font-size: 12px; font-family: var(--mono); }
+  table.data td, table.data th { padding: 3px 8px; border-bottom: 1px solid var(--border); text-align: right; }
+  table.data th:first-child, table.data td:first-child { text-align: left; }
+  details summary { cursor: pointer; font-size: 12px; color: var(--ink-3); margin-top: 6px; }
+  .table-scroll { max-height: 240px; overflow: auto; }
+  @media (max-width: 760px) {
+    .cred { grid-template-columns: 1fr 1fr; }
+    .actions { flex-direction: row; grid-column: 1 / -1; justify-content: flex-start; }
+  }
+</style>
+</head>
+<body>
+<div id="login" class="card login" hidden>
+  <h2 style="margin:0 0 4px">Quota Management</h2>
+  <div class="sub">Enter your management key</div>
+  <form id="login-form">
+    <input id="key-input" type="password" autocomplete="current-password" placeholder="Management key">
+    <div id="login-error" class="error-text"></div>
+    <button class="btn primary" type="submit">Continue</button>
+  </form>
+</div>
+
+<div id="app" class="wrap" hidden>
+  <header>
+    <div>
+      <h1>Quota Management</h1>
+      <div class="sub" id="cred-count"></div>
+    </div>
+    <div class="row">
+      <button class="icon-btn" id="theme-btn" title="Toggle theme" aria-label="Toggle theme">&#9788;</button>
+      <button class="icon-btn" id="logout-btn" title="Forget key" aria-label="Forget key">&#8618;</button>
+      <button class="btn" id="emails-btn">Show emails</button>
+      <button class="btn primary" id="refresh-all-btn">&#8635; Refresh all credentials</button>
+    </div>
+  </header>
+
+  <section class="card summary">
+    <div class="headline">
+      <span class="big" id="remaining-pct">-</span>
+      <span class="of" id="capacity-pct"></span>
+      <span class="rate" id="drain-rate"></span>
+    </div>
+    <div class="tabs" role="tablist">
+      <button class="tab on" data-tab="remaining" role="tab">Remaining quota</button>
+      <button class="tab" data-tab="drain" role="tab">Drain rate</button>
+    </div>
+    <div class="controls">
+      <span id="legend"></span>
+      <span class="spacer"></span>
+      <label>Window
+        <select id="window-select">
+          <option value="seven_day">7-day</option>
+          <option value="fable">7-day Fable</option>
+          <option value="five_hour">5-hour</option>
+        </select>
+      </label>
+      <label>Next
+        <select id="horizon-select">
+          <option value="1">1 day</option>
+          <option value="3">3 days</option>
+          <option value="7" selected>7 days</option>
+          <option value="14">14 days</option>
+        </select>
+      </label>
+    </div>
+    <div class="chart" id="chart">
+      <svg id="chart-svg" role="img" aria-label="Remaining quota over time"></svg>
+      <div class="tooltip" id="tooltip"></div>
+    </div>
+    <div class="foot">
+      <span id="next-reset"></span>
+      <button class="linkish" id="settings-btn">&#9656; Forecast settings</button>
+    </div>
+    <div class="settings" id="settings">
+      <label>Drain rate from the last
+        <select id="lookback-select">
+          <option value="6">6 hours</option>
+          <option value="24" selected>24 hours</option>
+          <option value="72">3 days</option>
+          <option value="168">7 days</option>
+        </select>
+      </label>
+      <label>Drain order
+        <select id="order-select">
+          <option value="expiring" selected>Soonest reset first (expiring-first)</option>
+          <option value="even">Spread evenly</option>
+        </select>
+      </label>
+      <span id="runout"></span>
+    </div>
+    <details>
+      <summary>Data table</summary>
+      <div class="table-scroll"><table class="data" id="data-table"></table></div>
+    </details>
+  </section>
+
+  <div class="toolbar">
+    <input class="search" id="search" placeholder="Search by filename or email">
+    <select id="sort-select">
+      <option value="default">Default</option>
+      <option value="reset">Soonest reset</option>
+      <option value="remaining">Most remaining</option>
+      <option value="least">Least remaining</option>
+    </select>
+  </div>
+
+  <section class="card">
+    <div class="group-head"><span>Claude</span><span class="muted" id="group-meta"></span></div>
+    <div id="cred-list"></div>
+  </section>
+</div>
+
+<script>
+(() => {
+  const KEY_STORE = 'cpa-quota-key';
+  const PREFS_STORE = 'cpa-quota-prefs';
+  const HOUR = 3600e3;
+  const WINDOWS = {
+    five_hour: { label: '5-hour', period: 5 * HOUR },
+    seven_day: { label: '7-day', period: 168 * HOUR },
+    fable: { label: '7-day Fable', period: 168 * HOUR },
+  };
+  const $ = (id) => document.getElementById(id);
+  const prefs = Object.assign({ window: 'seven_day', horizon: 7, lookback: 24, order: 'expiring', theme: 'dark', emails: false, sort: 'default', tab: 'remaining' },
+    JSON.parse(localStorage.getItem(PREFS_STORE) || '{}'));
+  const savePrefs = () => localStorage.setItem(PREFS_STORE, JSON.stringify(prefs));
+  let data = null;
+  let model = null;
+
+  // ---------- API ----------
+  async function api(path, opts = {}) {
+    const key = localStorage.getItem(KEY_STORE) || '';
+    const res = await fetch('/v8/management' + path, {
+      ...opts,
+      headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json', ...(opts.headers || {}) },
+    });
+    if (res.status === 401 || res.status === 403) { const err = new Error('unauthorized'); err.auth = true; throw err; }
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || ('HTTP ' + res.status));
+    return res.json();
+  }
+
+  async function load() {
+    try {
+      data = await api('/quota/history');
+      showApp();
+      render();
+    } catch (err) {
+      if (err.auth) return showLogin(localStorage.getItem(KEY_STORE) ? 'Key rejected' : '');
+      $('cred-count').textContent = 'Error: ' + err.message;
+    }
+  }
+
+  async function refresh(authIndex, button) {
+    if (button) button.disabled = true;
+    try {
+      data = await api('/quota/history/refresh', { method: 'POST', body: JSON.stringify(authIndex ? { auth_index: authIndex } : {}) });
+      render();
+    } catch (err) {
+      if (err.auth) return showLogin('Key rejected');
+      alert('Refresh failed: ' + err.message);
+    } finally {
+      if (button) button.disabled = false;
+    }
+  }
+
+  async function resetCooldown(authIndex, button) {
+    button.disabled = true;
+    try {
+      await api('/routing/cooldown/reset', { method: 'POST', body: JSON.stringify({ auth_index: authIndex }) });
+      await load();
+    } catch (err) {
+      alert('Reset failed: ' + err.message);
+      button.disabled = false;
+    }
+  }
+
+  function showLogin(message) {
+    $('app').hidden = true;
+    $('login').hidden = false;
+    $('login-error').textContent = message || '';
+    $('key-input').focus();
+  }
+  function showApp() { $('login').hidden = true; $('app').hidden = false; }
+
+  // ---------- Model ----------
+  const clampPct = (v) => Math.max(0, Math.min(100, v));
+  const remainingOf = (win, at) => {
+    if (!win) return null;
+    const reset = win.resets_at ? Date.parse(win.resets_at) : NaN;
+    if (!isNaN(reset) && reset <= at) return 100;
+    return clampPct(100 - win.percent);
+  };
+
+  function buildModel() {
+    const now = Date.parse(data.now);
+    const w = prefs.window;
+    const period = WINDOWS[w].period;
+    const active = data.credentials.filter((c) => !c.disabled);
+    const activeIds = new Set(active.map((c) => c.id));
+
+    // Current pool state.
+    const pool = [];
+    for (const c of active) {
+      const win = c.status && c.status.usage ? c.status.usage[w] : null;
+      if (!win) continue;
+      const reset = win.resets_at ? Date.parse(win.resets_at) : NaN;
+      pool.push({ id: c.id, rem: remainingOf(win, now), reset: isNaN(reset) ? null : (reset <= now ? reset + period * Math.ceil((now - reset) / period) : reset) });
+    }
+    const capacity = pool.length * 100;
+    const remaining = pool.reduce((s, p) => s + p.rem, 0);
+
+    // History: total remaining after each sampling round, carrying values forward per credential.
+    const samples = data.samples.filter((s) => activeIds.has(s.id) && s[w]).sort((a, b) => Date.parse(a.t) - Date.parse(b.t));
+    const last = new Map();
+    const history = [];
+    const consumption = [];
+    for (const s of samples) {
+      const t = Date.parse(s.t);
+      const rem = remainingOf(s[w], t);
+      const prev = last.get(s.id);
+      if (prev && rem < prev.rem && sameWindow(prev.win, s[w])) consumption.push({ t, amount: prev.rem - rem });
+      last.set(s.id, { rem, win: s[w] });
+      const total = [...last.values()].reduce((sum, v) => sum + v.rem, 0);
+      const point = { t, v: total, cap: last.size * 100 };
+      if (history.length && t - history[history.length - 1].t < 120e3) history[history.length - 1] = point;
+      else history.push(point);
+    }
+    if (pool.length) history.push({ t: now, v: remaining, cap: capacity });
+
+    // Drain rate over the lookback window, scaled to the span of data actually available.
+    const lookbackStart = now - prefs.lookback * HOUR;
+    const firstT = samples.length ? Date.parse(samples[0].t) : now;
+    const spanHours = Math.max(1, (now - Math.max(lookbackStart, firstT)) / HOUR);
+    const used = consumption.filter((c) => c.t >= lookbackStart).reduce((s, c) => s + c.amount, 0);
+    const rate = samples.length > 1 ? used / spanHours : 0;
+
+    // Projection: drain the pool at the current rate and restore credentials at each reset.
+    const projection = [];
+    const resets = [];
+    let runout = null;
+    const sim = pool.map((p) => ({ ...p }));
+    const end = now + prefs.horizon * 24 * HOUR;
+    const step = Math.min(10 * 60e3, period / 30);
+    for (let t = now; t <= end; t += step) {
+      for (const p of sim) {
+        while (p.reset !== null && p.reset <= t) {
+          const gain = 100 - p.rem;
+          if (gain > 0.5) resets.push({ t: p.reset, gain });
+          p.rem = 100;
+          p.reset += period;
+        }
+      }
+      if (t > now) drain(sim, rate * step / HOUR);
+      const total = sim.reduce((s, p) => s + p.rem, 0);
+      if (runout === null && total < 0.5 && rate > 0 && sim.length) runout = t;
+      projection.push({ t, v: total, cap: capacity });
+    }
+    const nextReset = groupResets(resets)[0] || null;
+    return { now, w, capacity, remaining, history, projection, consumption, rate, nextReset, runout, poolSize: pool.length };
+  }
+
+  function sameWindow(a, b) {
+    if (!a.resets_at || !b.resets_at) return true;
+    return Math.abs(Date.parse(a.resets_at) - Date.parse(b.resets_at)) < 30 * 60e3;
+  }
+
+  function drain(sim, amount) {
+    if (prefs.order === 'even') {
+      let left = amount;
+      for (let pass = 0; pass < 4 && left > 1e-9; pass++) {
+        const live = sim.filter((p) => p.rem > 0);
+        if (!live.length) return;
+        const share = left / live.length;
+        left = 0;
+        for (const p of live) { const take = Math.min(p.rem, share); p.rem -= take; left += share - take; }
+      }
+      return;
+    }
+    const order = sim.filter((p) => p.rem > 0).sort((a, b) => (a.reset ?? Infinity) - (b.reset ?? Infinity));
+    for (const p of order) {
+      if (amount <= 0) return;
+      const take = Math.min(p.rem, amount);
+      p.rem -= take;
+      amount -= take;
+    }
+  }
+
+  function groupResets(resets) {
+    const out = [];
+    for (const r of resets.sort((a, b) => a.t - b.t)) {
+      const prev = out[out.length - 1];
+      if (prev && r.t - prev.t < 60e3) prev.gain += r.gain; else out.push({ ...r });
+    }
+    return out;
+  }
+
+  // ---------- Formatting ----------
+  const pct = (v) => Math.round(v) + '%';
+  const fmtTime = (t) => new Date(t).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+  const fmtDate = (t) => new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  function fmtIn(ms) {
+    const abs = Math.abs(ms);
+    const m = Math.round(abs / 60e3);
+    let s;
+    if (m < 60) s = m + 'm';
+    else if (m < 48 * 60) s = Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
+    else s = Math.round(m / 1440) + ' days';
+    return ms >= 0 ? 'in ' + s : s + ' ago';
+  }
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+  function maskEmail(email) {
+    if (!email) return '';
+    if (prefs.emails) return email;
+    const [user, domain] = email.split('@');
+    return (user || '').slice(0, 2) + '***' + (domain ? '@' + domain : '');
+  }
+  function maskName(name, email) {
+    if (prefs.emails || !email) return name;
+    return name.split(email).join(maskEmail(email));
+  }
+
+  // ---------- Render ----------
+  function render() {
+    model = buildModel();
+    const total = data.credentials.length;
+    const loaded = data.credentials.filter((c) => c.status && c.status.fetched_at).length;
+    $('cred-count').innerHTML = '| ' + total + ' credentials &middot; <b>' + loaded + ' loaded</b>';
+    $('remaining-pct').textContent = model.poolSize ? pct(model.remaining) : '-';
+    $('capacity-pct').textContent = model.poolSize ? '/ ' + pct(model.capacity) + ' remaining' : 'no ' + WINDOWS[model.w].label + ' data yet';
+    $('drain-rate').textContent = model.rate > 0 ? '~' + model.rate.toFixed(1) + '% per hour' : '';
+    $('next-reset').textContent = model.nextReset ? 'Next reset +' + pct(model.nextReset.gain) + ' · ' + fmtTime(model.nextReset.t) : '';
+    $('runout').textContent = model.rate <= 0 ? '' : model.runout
+      ? 'At this rate the pool runs dry ' + fmtTime(model.runout) + ' (' + fmtIn(model.runout - model.now) + ')'
+      : 'At this rate the pool lasts past the forecast horizon';
+    $('emails-btn').textContent = prefs.emails ? 'Hide emails' : 'Show emails';
+    $('group-meta').textContent = data.credentials.length + ' credentials · ' + WINDOWS[model.w].label + ' ' + pct(model.remaining) + ' / ' + pct(model.capacity);
+    document.querySelectorAll('.tab').forEach((el) => el.classList.toggle('on', el.dataset.tab === prefs.tab));
+    $('legend').innerHTML = prefs.tab === 'remaining'
+      ? '<span class="legend-dot"></span>Remaining &nbsp; <span class="legend-dash"></span>Projected'
+      : '<span class="legend-dot"></span>Quota used per hour (% of one credential)';
+    renderChart();
+    renderTable();
+    renderList();
+  }
+
+  function chartFrame() {
+    const svg = $('chart-svg');
+    const box = svg.getBoundingClientRect();
+    return { svg, W: Math.max(320, box.width), H: Math.max(180, box.height), m: { l: 44, r: 12, t: 14, b: 26 } };
+  }
+
+  function timeTicks(x0, x1, width) {
+    const span = x1 - x0;
+    const steps = [HOUR, 3 * HOUR, 6 * HOUR, 12 * HOUR, 24 * HOUR, 48 * HOUR];
+    const stepMs = steps.find((s) => span / s <= Math.max(3, width / 90)) || 96 * HOUR;
+    const ticks = [];
+    const start = new Date(x0); start.setMinutes(0, 0, 0);
+    if (stepMs >= 24 * HOUR) start.setHours(0);
+    for (let t = start.getTime(); t <= x1; t += stepMs) if (t >= x0) ticks.push(t);
+    const fmt = stepMs >= 24 * HOUR
+      ? (t) => new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+      : (t) => new Date(t).toLocaleTimeString(undefined, { hour: 'numeric' });
+    return { ticks, fmt };
+  }
+
+  function renderChart() {
+    const { svg, W, H, m } = chartFrame();
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    const tip = $('tooltip');
+    tip.style.display = 'none';
+    if (!model.poolSize && !model.history.length) {
+      svg.innerHTML = `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" class="axis">No ${WINDOWS[model.w].label} usage recorded yet. Samples are taken every ${Math.round(data.interval_seconds / 60)} minutes.</text>`;
+      svg.onmousemove = svg.onmouseleave = null;
+      return;
+    }
+    const histStart = model.history.length ? model.history[0].t : model.now;
+    const x0 = Math.max(histStart, model.now - prefs.horizon * 24 * HOUR);
+    const x1 = prefs.tab === 'remaining' ? model.now + prefs.horizon * 24 * HOUR : model.now;
+    const x0Safe = Math.min(x0, x1 - HOUR);
+    const sx = (t) => m.l + (t - x0Safe) / (x1 - x0Safe) * (W - m.l - m.r);
+    const { ticks, fmt } = timeTicks(x0Safe, x1, W);
+    let out = '';
+
+    if (prefs.tab === 'remaining') {
+      const cap = Math.max(100, model.capacity, ...model.history.map((p) => p.cap));
+      const sy = (v) => H - m.b - (v / cap) * (H - m.t - m.b);
+      for (let i = 0; i <= 4; i++) {
+        const v = cap * i / 4; const y = sy(v);
+        out += `<line x1="${m.l}" x2="${W - m.r}" y1="${y}" y2="${y}" stroke="var(--grid)" stroke-width="1"/>`;
+        out += `<text x="${m.l - 8}" y="${y + 4}" text-anchor="end" class="axis">${Math.round(v)}%</text>`;
+      }
+      const hist = model.history.filter((p) => p.t >= x0Safe);
+      const stepPath = (pts) => pts.map((p, i) => (i ? `L${sx(p.t)},${sy(pts[i - 1].v)} L` : 'M') + `${sx(p.t)},${sy(p.v)}`).join(' ');
+      if (hist.length) {
+        const line = stepPath(hist);
+        out += `<defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--accent-fill-top)"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>`;
+        out += `<path d="${line} L${sx(hist[hist.length - 1].t)},${sy(0)} L${sx(hist[0].t)},${sy(0)} Z" fill="url(#fill)"/>`;
+        out += `<path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>`;
+      }
+      if (model.projection.length) {
+        const proj = model.projection.map((p, i) => `${i ? 'L' : 'M'}${sx(p.t)},${sy(p.v)}`).join(' ');
+        out += `<path d="${proj}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-dasharray="5 4" opacity=".75"/>`;
+      }
+      out += nowMarker(sx(model.now), m, H);
+      out += `<circle cx="${sx(model.now)}" cy="${sy(model.remaining)}" r="4" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/>`;
+      out += ticks.map((t) => `<text x="${sx(t)}" y="${H - 8}" text-anchor="middle" class="axis">${fmt(t)}</text>`).join('');
+      out += `<line id="cross" y1="${m.t}" y2="${H - m.b}" stroke="var(--ink-3)" stroke-width="1" visibility="hidden"/><circle id="cross-dot" r="4" fill="var(--accent)" stroke="var(--surface)" stroke-width="2" visibility="hidden"/>`;
+      svg.innerHTML = out;
+
+      const series = [...hist.map((p) => ({ ...p, kind: 'Remaining' })), ...model.projection.slice(1).map((p) => ({ ...p, kind: 'Projected' }))];
+      svg.onmousemove = (e) => {
+        const r = svg.getBoundingClientRect();
+        const t = x0Safe + ((e.clientX - r.left) * W / r.width - m.l) / (W - m.l - m.r) * (x1 - x0Safe);
+        let best = null;
+        for (const p of series) if (!best || Math.abs(p.t - t) < Math.abs(best.t - t)) best = p;
+        if (!best) return;
+        const cx = sx(best.t), cy = sy(best.v);
+        const cross = $('cross'), dot = $('cross-dot');
+        cross.setAttribute('x1', cx); cross.setAttribute('x2', cx); cross.setAttribute('visibility', 'visible');
+        dot.setAttribute('cx', cx); dot.setAttribute('cy', cy); dot.setAttribute('visibility', 'visible');
+        tip.innerHTML = `<div class="t">${esc(best.kind)} &middot; ${esc(fmtDate(best.t))}</div><div class="v">${pct(best.v)} / ${pct(best.cap)}</div>`;
+        showTip(tip, cx * r.width / W, cy * r.height / H, r.width);
+      };
+    } else {
+      const bucket = (x1 - x0Safe) > 72 * HOUR ? 6 * HOUR : (x1 - x0Safe) > 24 * HOUR ? 3 * HOUR : HOUR;
+      const bins = new Map();
+      for (const c of model.consumption) {
+        if (c.t < x0Safe) continue;
+        const k = Math.floor(c.t / bucket) * bucket;
+        bins.set(k, (bins.get(k) || 0) + c.amount);
+      }
+      const bars = [...bins.entries()].map(([t, v]) => ({ t, v: v / (bucket / HOUR) })).sort((a, b) => a.t - b.t);
+      const maxV = Math.max(5, model.rate, ...bars.map((b) => b.v));
+      const tickStep = [0.5, 1, 2, 2.5, 5, 10, 20, 25, 50, 100].find((s) => s * 4 >= maxV) || Math.ceil(maxV / 400) * 100;
+      const niceMax = tickStep * 4;
+      const sy = (v) => H - m.b - (v / niceMax) * (H - m.t - m.b);
+      for (let i = 0; i <= 4; i++) {
+        const v = niceMax * i / 4; const y = sy(v);
+        out += `<line x1="${m.l}" x2="${W - m.r}" y1="${y}" y2="${y}" stroke="var(--grid)" stroke-width="1"/>`;
+        out += `<text x="${m.l - 8}" y="${y + 4}" text-anchor="end" class="axis">${+v.toFixed(1)}%</text>`;
+      }
+      const bw = Math.max(2, sx(x0Safe + bucket) - sx(x0Safe) - 2);
+      for (const b of bars) {
+        const left = Math.max(m.l, sx(b.t) + 1), right = Math.min(W - m.r, sx(b.t) + 1 + bw);
+        const x = left, y = sy(b.v), h = Math.max(0, sy(0) - y), width = right - left;
+        if (width <= 0) continue;
+        const rr = Math.min(4, width / 2, h);
+        out += `<path d="M${x},${sy(0)} V${y + rr} Q${x},${y} ${x + rr},${y} H${x + width - rr} Q${x + width},${y} ${x + width},${y + rr} V${sy(0)} Z" fill="var(--accent)"/>`;
+      }
+      if (model.rate > 0) {
+        const y = sy(model.rate);
+        out += `<line x1="${m.l}" x2="${W - m.r}" y1="${y}" y2="${y}" stroke="var(--ink-2)" stroke-width="1" stroke-dasharray="4 4"/>`;
+        out += `<text x="${W - m.r}" y="${y - 5}" text-anchor="end" class="axis">avg ${model.rate.toFixed(1)}%/h</text>`;
+      }
+      out += ticks.map((t) => `<text x="${sx(t)}" y="${H - 8}" text-anchor="middle" class="axis">${fmt(t)}</text>`).join('');
+      svg.innerHTML = out || '';
+      svg.onmousemove = (e) => {
+        const r = svg.getBoundingClientRect();
+        const t = x0Safe + ((e.clientX - r.left) * W / r.width - m.l) / (W - m.l - m.r) * (x1 - x0Safe);
+        const k = Math.floor(t / bucket) * bucket;
+        const v = (bins.get(k) || 0) / (bucket / HOUR);
+        tip.innerHTML = `<div class="t">${esc(fmtDate(k))} &ndash; ${esc(new Date(k + bucket).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }))}</div><div class="v">${v.toFixed(1)}% per hour</div>`;
+        showTip(tip, (sx(k) + bw / 2) * r.width / W, sy(v) * r.height / H, r.width);
+      };
+    }
+    svg.onmouseleave = () => {
+      tip.style.display = 'none';
+      const cross = $('cross'), dot = $('cross-dot');
+      if (cross) { cross.setAttribute('visibility', 'hidden'); dot.setAttribute('visibility', 'hidden'); }
+    };
+  }
+
+  function nowMarker(x, m, H) {
+    return `<line x1="${x}" x2="${x}" y1="${m.t}" y2="${H - m.b}" stroke="var(--ink-3)" stroke-width="1" stroke-dasharray="3 3"/>` +
+      `<text x="${x + 4}" y="${m.t + 10}" class="axis">Now</text>`;
+  }
+
+  function showTip(tip, x, y, width) {
+    tip.style.display = 'block';
+    const w = tip.offsetWidth;
+    tip.style.left = Math.min(Math.max(0, x + 12), width - w) + 'px';
+    tip.style.top = Math.max(0, y - 46) + 'px';
+  }
+
+  function renderTable() {
+    const rows = prefs.tab === 'remaining'
+      ? [...model.history.map((p) => [fmtDate(p.t), 'recorded', pct(p.v), pct(p.cap)]),
+         ...model.projection.filter((_, i) => i % 6 === 0).map((p) => [fmtDate(p.t), 'projected', pct(p.v), pct(p.cap)])]
+      : model.consumption.map((c) => [fmtDate(c.t), 'used', c.amount.toFixed(1) + '%', '']);
+    const head = prefs.tab === 'remaining' ? '<tr><th>Time</th><th>Kind</th><th>Remaining</th><th>Capacity</th></tr>' : '<tr><th>Time</th><th>Kind</th><th>Amount</th><th></th></tr>';
+    $('data-table').innerHTML = head + rows.map((r) => '<tr>' + r.map((c) => '<td>' + esc(c) + '</td>').join('') + '</tr>').join('');
+  }
+
+  function windowCell(c, key) {
+    const win = c.status && c.status.usage ? c.status.usage[key] : null;
+    const label = WINDOWS[key].label + ' limit';
+    if (!win) return `<div class="win na"><div class="top"><span>${label}</span><b>-</b></div><div class="bar"><i style="width:0"></i></div><div class="when">not reported</div></div>`;
+    const rem = remainingOf(win, model.now);
+    const color = rem > 50 ? 'var(--good)' : rem > 15 ? 'var(--warn)' : 'var(--bad)';
+    const reset = win.resets_at ? Date.parse(win.resets_at) : NaN;
+    const when = isNaN(reset) ? '' : reset <= model.now ? 'reset ' + fmtIn(reset - model.now) : fmtIn(reset - model.now) + ' · ' + fmtDate(reset);
+    return `<div class="win"><div class="top"><span>${label}</span><b>${pct(rem)}</b></div><div class="bar" role="meter" aria-valuenow="${Math.round(rem)}" aria-valuemin="0" aria-valuemax="100" aria-label="${label} remaining"><i style="width:${rem}%;background:${color}"></i></div><div class="when" title="${esc(when)}">${esc(when)}</div></div>`;
+  }
+
+  function renderList() {
+    const q = $('search').value.trim().toLowerCase();
+    const w = prefs.window;
+    const remOf = (c) => { const r = remainingOf(c.status && c.status.usage ? c.status.usage[w] : null, model.now); return r === null ? -1 : r; };
+    const resetOf = (c) => { const win = c.status && c.status.usage ? c.status.usage[w] : null; const t = win && win.resets_at ? Date.parse(win.resets_at) : NaN; return isNaN(t) ? Infinity : t; };
+    let list = data.credentials.filter((c) => !q || c.name.toLowerCase().includes(q) || (c.email || '').toLowerCase().includes(q));
+    if (prefs.sort === 'reset') list = [...list].sort((a, b) => resetOf(a) - resetOf(b));
+    if (prefs.sort === 'remaining') list = [...list].sort((a, b) => remOf(b) - remOf(a));
+    if (prefs.sort === 'least') list = [...list].sort((a, b) => remOf(a) - remOf(b));
+    if (!list.length) { $('cred-list').innerHTML = '<div class="empty">No Claude credentials match.</div>'; return; }
+    $('cred-list').innerHTML = list.map((c) => {
+      const cooldown = c.cooldown_until ? Date.parse(c.cooldown_until) - model.now : 0;
+      const state = c.disabled ? '<span class="err">disabled</span>' : cooldown > 0 ? `<span class="cool">back ${esc(fmtIn(cooldown))}</span>` : '';
+      const seen = c.status && c.status.fetched_at ? 'Last seen ' + esc(fmtDate(Date.parse(c.status.fetched_at))) : 'Not sampled yet';
+      const err = c.status && c.status.error ? `<div class="err" title="${esc(c.status.error)}">usage fetch failed${c.status.source ? ', using headers' : ''}</div>` : '';
+      return `<div class="cred">
+        <div style="min-width:0">
+          <div class="name" title="${esc(maskName(c.name, c.email))}">${esc(maskName(c.name, c.email))}</div>
+          <div class="meta">Claude${c.email ? ' · ' + esc(maskEmail(c.email)) : ''}${state ? ' · ' + state : ''}</div>
+          <div class="meta">${seen}</div>${err ? '<div class="meta">' + err + '</div>' : ''}
+        </div>
+        ${windowCell(c, 'seven_day')}${windowCell(c, 'five_hour')}${windowCell(c, 'fable')}
+        <div class="actions">
+          <button class="btn small" data-refresh="${esc(c.auth_index)}">&#8635; Refresh quota</button>
+          ${cooldown > 0 ? `<button class="btn small" data-reset="${esc(c.auth_index)}">Reset limits</button>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  // ---------- Events ----------
+  function applyTheme() { document.documentElement.classList.toggle('light', prefs.theme === 'light'); }
+  function bindSelect(id, key, numeric) {
+    const el = $(id);
+    el.value = String(prefs[key]);
+    el.addEventListener('change', () => { prefs[key] = numeric ? Number(el.value) : el.value; savePrefs(); if (data) render(); });
+  }
+
+  $('login-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    localStorage.setItem(KEY_STORE, $('key-input').value.trim());
+    load();
+  });
+  $('logout-btn').addEventListener('click', () => { localStorage.removeItem(KEY_STORE); showLogin(''); });
+  $('theme-btn').addEventListener('click', () => { prefs.theme = prefs.theme === 'light' ? 'dark' : 'light'; savePrefs(); applyTheme(); if (data) render(); });
+  $('emails-btn').addEventListener('click', () => { prefs.emails = !prefs.emails; savePrefs(); render(); });
+  $('refresh-all-btn').addEventListener('click', (e) => refresh('', e.currentTarget));
+  $('settings-btn').addEventListener('click', () => {
+    const on = $('settings').classList.toggle('on');
+    $('settings-btn').innerHTML = (on ? '&#9662;' : '&#9656;') + ' Forecast settings';
+  });
+  document.querySelectorAll('.tab').forEach((el) => el.addEventListener('click', () => { prefs.tab = el.dataset.tab; savePrefs(); render(); }));
+  $('search').addEventListener('input', () => data && renderList());
+  $('cred-list').addEventListener('click', (e) => {
+    const r = e.target.closest('[data-refresh]');
+    if (r) return refresh(r.dataset.refresh, r);
+    const x = e.target.closest('[data-reset]');
+    if (x) resetCooldown(x.dataset.reset, x);
+  });
+  bindSelect('window-select', 'window');
+  bindSelect('horizon-select', 'horizon', true);
+  bindSelect('lookback-select', 'lookback', true);
+  bindSelect('order-select', 'order');
+  bindSelect('sort-select', 'sort');
+  let resizeTimer;
+  window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => data && renderChart(), 100); });
+  setInterval(() => { if (data && !document.hidden) load(); }, 60e3);
+
+  applyTheme();
+  if (localStorage.getItem(KEY_STORE) === null) showLogin(''); else load();
+})();
+</script>
+</body>
+</html>
