@@ -455,12 +455,14 @@
     .tiles, .tiles.n4 { grid-template-columns: 1fr; gap: var(--s2); }
     .tile { padding: var(--s3) var(--s4); }
     /* Phones: the most urgent window keeps its full tile; the others fold to one line. */
-    .tile.pick:not(.lead) { padding: var(--s2) var(--s3); gap: 0; }
+    .tile.pick:not(.lead) { padding: var(--s2) 10px; gap: 0; }
     .tile.pick:not(.lead) > :not(.tile-head) { display: none; }
-    .tile.pick:not(.lead) .tile-head h3 { flex: none; }
-    .tile.pick:not(.lead) .tile-brief { display: block; flex: 1; min-width: 0; font-size: var(--t-sm); color: var(--ink-2); line-height: 1.4; }
+    .tile.pick:not(.lead) .tile-head h3 { flex: none; font-size: var(--t-sm); }
+    .tile.pick:not(.lead) .tile-head { gap: 6px; }
+    .tile.pick:not(.lead) .tile-brief { display: block; flex: 1; min-width: 0; font-size: var(--t-xs); color: var(--ink-2); line-height: 1.5; max-height: 1.5em; overflow: hidden; }
+    .tile.pick:not(.lead) .tile-brief > .nw:first-child { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: top; }
     .tile-brief b { color: var(--ink); font-weight: 600; }
-    .tile-brief .vk .i { width: 13px; height: 13px; margin-right: 3px; vertical-align: -2px; color: var(--ink-3); }
+    .tile-brief .vk .i { width: 12px; height: 12px; margin-right: 3px; vertical-align: -2px; color: var(--ink-3); }
     .tile-brief .vk.good .i { color: var(--good); }
     .tile-brief .vk.warn .i { color: var(--warn); }
     .tile-brief .vk.bad .i { color: var(--bad); }
@@ -495,6 +497,19 @@
     details[open] > summary.who-err { margin-bottom: 0; }
     .seg { height: auto; }
     .seg button { min-height: 40px; }
+  }
+  /* Touch tablets: the action follows the text on its line when it fits. Its 12 px top margin still clears a name
+     link's hit band on the line above when it wraps. The icon follows the first line's text, not the taller line box. */
+  @media (pointer: coarse) and (min-width: 641px) and (max-width: 1080px) {
+    .p-act { display: inline-flex; width: auto; vertical-align: baseline; }
+    .prob { align-items: baseline; }
+    .prob > .i { margin-top: 0; position: relative; top: 2px; }
+  }
+  /* From three problems, touch-size actions make the list outgrow a window tile beside it, so three windows share
+     a row and Credentials takes the next one. */
+  @media (pointer: coarse) and (min-width: 800px) and (max-width: 1080px) {
+    .tiles.n4:has(.probs > :nth-child(3) .p-act) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .tiles.n4:has(.probs > :nth-child(3) .p-act) > .creds-tile { grid-column: 1 / -1; }
   }
   @media (forced-colors: active) {
     .bar { border: 1px solid CanvasText; }
@@ -1398,16 +1413,19 @@
     }
     if (m.runout !== null) {
       const head = 'Runs out ' + nw(fmtWhen(m.runout));
-      return { kind: 'bad', icon: 'stop', head,
+      // Phone one-liner: "Empty 2:50 PM" today, else "Empty Wed" or "Empty Nov 3" with the time in shortOpt.
+      const days = Math.round((startOfDay(m.runout) - startOfDay(m.now)) / DAY);
+      const day = days > 0 ? new Date(m.runout).toLocaleDateString(undefined, days < 7 ? { weekday: 'short' } : { month: 'short', day: 'numeric' }) : '';
+      return { kind: 'bad', icon: 'stop', head, short: 'Empty' + NB + (day ? nb(day) : fmtClock(m.runout)), shortOpt: day ? fmtClock(m.runout) : '',
         sub: 'In ' + nw(fmtDur(m.runout - m.now)) + ' at ' + pace(prefs.lookback) + '.' + (m.fast ? ' Sooner at ' + pace(m.fast.lookback) + ': ' + nw(fmtWhen(m.fast.runout, true)) + '.' : '') };
     }
     if (m.fast) {
-      return { kind: 'warn', icon: 'alert', head: 'Lasts at ' + pace(prefs.lookback), short: 'May run out early', sub: 'Could run out ' + nw(fmtWhen(m.fast.runout)) + ' at ' + pace(m.fast.lookback) };
+      return { kind: 'warn', icon: 'alert', head: 'Lasts at ' + pace(prefs.lookback), short: 'May run short', sub: 'Could run out ' + nw(fmtWhen(m.fast.runout)) + ' at ' + pace(m.fast.lookback) };
     }
     if (m.unsure && m.unsure.runout === null) return { kind: 'neutral', icon: 'info', head: 'No forecast yet', sub: 'Not measured since the reset' };
     if (m.unsure) {
       const n = m.unsure.members.length, head = 'Could run out ' + nw(fmtWhen(m.unsure.runout));
-      return { kind: 'warn', icon: 'alert', head, short: 'May run out early',
+      return { kind: 'warn', icon: 'alert', head, short: 'May run short',
         sub: 'Without ' + (n === 1 ? esc(shortName(m.unsure.members[0].c)) + ', whose reset is assumed' : n + ' credentials whose resets are assumed') };
     }
     // Another window that runs out inside this one's horizon is the real limit, so this one is not green.
@@ -1449,8 +1467,10 @@
     // Accessible name stays "Show <window> in chart"; aria-pressed says whether it is the charted window.
     const btn = `<button type="button" class="tile-btn" data-window="${m.w}" aria-pressed="${selected}">${icon('chart')}<span class="bt">` +
       (selected ? `<span class="sr-only">Show ${esc(label)} </span>In chart` : `Show <span class="sr-only">${esc(label)} </span>in chart`) + '</span></button>';
-    // One-line summary that replaces the body on phones for every tile but the most urgent one.
-    const brief = `<p class="tile-brief"><b>${pct(share)}</b> left · <span class="vk ${v.kind}">${icon(v.icon)}${v.short || v.head}</span></p>`;
+    // One-line summary that replaces the body on phones for every tile but the most urgent one. The line is
+    // clipped to one row, so a shortOpt time that does not fit wraps out of sight.
+    const opt = v.shortOpt ? ` <span class="nw">${v.shortOpt}</span>` : '';
+    const brief = `<p class="tile-brief"><span class="nw"><b>${pct(share)}</b> left · <span class="vk ${v.kind}">${icon(v.icon)}${v.short || v.head}</span></span>${opt}</p>`;
     return `<div class="tile pick${selected ? ' sel' : ''}${lead ? ' lead' : ''}">
       <div class="tile-head"><h3>${esc(label)}</h3>${brief}${btn}</div>
       <div class="tile-value"><span class="big">${pct(share)}</span><span class="unit">of pool left</span></div>
@@ -1623,11 +1643,15 @@
       if (num(outp, 'x') < right + 4 && t.dataset.short) { t.textContent = t.dataset.short; fit(outp); }
       if (num(outp, 'x') < right + 4) { outp.setAttribute('y', '26'); t.setAttribute('y', '40'); }
     }
-    // A pool-size change by Now keeps its label on its tick, else right of the Now pill if there is room, else only the tick.
+    // A pool-size change by Now keeps its label on its tick, else left of the Now pill if no older label is in the way,
+    // else right of the pill if there is room, else only the tick.
     const own = near ? num(near, 'x') : 0, onTick = near && own + near.getComputedTextLength() / 2 + 4 <= left;
     if (near && !onTick) {
+      const lx = left - 4 - near.getComputedTextLength();
+      const blocked = lx < Number(now.dataset.min) || [...svg.querySelectorAll('.pt')].some((t) => t !== near && num(t, 'x') <= left - 10 && num(t, 'x') + t.getComputedTextLength() / 2 + 4 > lx);
       const lim = Math.min(Number(now.dataset.max), outp && num(outp, 'y') < 20 ? num(outp, 'x') - 4 : 1e9);
-      if (right + 4 + near.getComputedTextLength() <= lim) { near.setAttribute('x', (right + 4).toFixed(1)); near.setAttribute('text-anchor', 'start'); }
+      if (!blocked) { near.setAttribute('x', (left - 4).toFixed(1)); near.setAttribute('text-anchor', 'end'); }
+      else if (right + 4 + near.getComputedTextLength() <= lim) { near.setAttribute('x', (right + 4).toFixed(1)); near.setAttribute('text-anchor', 'start'); }
       else near.remove();
     }
     svg.querySelectorAll('.pt').forEach((t) => { if (t !== near && (num(t, 'x') > left - 10 || (onTick && own - num(t, 'x') < 28))) t.remove(); });
@@ -2043,9 +2067,11 @@
     const remOf = (c) => { const r = remainingOf(usageOf(c, w), now); return r === null ? -1 : r; };
     const resetOf = (c) => { const win = usageOf(c, w); const t = win ? parseT(win.resets_at) : NaN; return isNaN(t) || t <= now ? Infinity : t; };
     let list = P.creds.filter((c) => !q || String(c.name || '').toLowerCase().includes(q) || String(c.email || '').toLowerCase().includes(q));
-    if (prefs.sort === 'reset') list = [...list].sort((a, b) => resetOf(a) - resetOf(b));
-    if (prefs.sort === 'remaining') list = [...list].sort((a, b) => remOf(b) - remOf(a));
-    if (prefs.sort === 'least') list = [...list].sort((a, b) => remOf(a) - remOf(b));
+    // Disabled credentials cannot serve requests, so the value sorts put them last.
+    const off = (c) => (c.disabled ? 1 : 0);
+    if (prefs.sort === 'reset') list = [...list].sort((a, b) => off(a) - off(b) || resetOf(a) - resetOf(b));
+    if (prefs.sort === 'remaining') list = [...list].sort((a, b) => off(a) - off(b) || remOf(b) - remOf(a));
+    if (prefs.sort === 'least') list = [...list].sort((a, b) => off(a) - off(b) || remOf(a) - remOf(b));
     $('cred-meta').textContent = q ? list.length + ' of ' + P.creds.length : String(P.creds.length || '');
     const span = cols.length + 3;
     spShown = (head.querySelector('th.sp') || {}).offsetWidth ? 1 : 0;
