@@ -3,350 +3,1035 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
 <title>Quota Management</title>
+<script>
+  // Apply the stored or system theme before first paint.
+  (function () {
+    try {
+      var p = JSON.parse(localStorage.getItem('cpa-quota-prefs') || '{}') || {};
+      var t = p.theme === 'light' || p.theme === 'dark' ? p.theme : (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+      if (t === 'light') document.documentElement.classList.add('light');
+    } catch (e) {}
+  })();
+</script>
 <style>
+  /* ---------- Tokens ---------- */
   :root {
-    --bg: #0f0d0c; --surface: #171412; --surface-2: #1f1b18; --border: #2c2622;
-    --ink: #f2ece7; --ink-2: #b8ada5; --ink-3: #7d736c;
-    --accent: #e0825f; --accent-soft: rgba(224,130,95,.16); --accent-fill-top: rgba(224,130,95,.30);
-    --grid: #2a2420; --good: #5cc28a; --warn: #e5b45a; --bad: #e46a5e;
-    --mono: ui-monospace, SFMono-Regular, Consolas, monospace;
+    color-scheme: dark;
+    --bg: #0f0d0c; --surface: #171412; --surface-2: #1f1b18; --surface-3: #29231f;
+    --line: #2a2420; --line-2: #342d28; --line-ctl: #6e635b;
+    --ink: #f2ece7; --ink-2: #c2b8b0; --ink-3: #9a8f87;
+    --accent: #e0825f; --on-accent: #1d1410;
+    --accent-soft: rgba(224, 130, 95, .12);
+    /* Data series wear neutral warm ink. Terracotta is brand, selection and primary actions; status colors mean status. */
+    --series: #ddd3cb; --series-band: rgba(221, 211, 203, .07); --series-bar: #a99d94;
+    --grid: #2a2420; --track: #3a322d; --meter: #a99d94; --muted-fill: #5c524b;
+    --good: #5cc28a; --warn: #e8c065; --bad: #ef6083; --warn-fill: #e8c065;
+    --good-bg: rgba(92, 194, 138, .12); --good-bd: rgba(92, 194, 138, .34);
+    --warn-bg: rgba(232, 192, 101, .12); --warn-bd: rgba(232, 192, 101, .34);
+    --bad-bg: rgba(239, 96, 131, .14); --bad-bd: rgba(239, 96, 131, .40);
+    --neutral-bg: rgba(242, 236, 231, .06); --neutral-bd: rgba(242, 236, 231, .18);
+    --focus: #7cb2ff;
+    --shadow: 0 12px 32px rgba(0, 0, 0, .5);
+    --font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, "Liberation Sans", sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    /* 4 px spacing scale */
+    --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 24px; --s8: 32px; --s12: 48px;
+    /* three control heights */
+    --h-sm: 28px; --h-md: 32px; --h-lg: 40px;
+    /* one radius family */
+    --r1: 4px; --r2: 8px; --r3: 12px;
+    /* type scale */
+    --t-xs: 12px; --t-sm: 13px; --t-md: 14px; --t-lg: 20px; --t-xl: 28px;
   }
   :root.light {
-    --bg: #f6f3f0; --surface: #ffffff; --surface-2: #f3eeea; --border: #e4dcd5;
-    --ink: #1d1916; --ink-2: #5b524c; --ink-3: #8c827b;
-    --accent: #b9532f; --accent-soft: rgba(185,83,47,.12); --accent-fill-top: rgba(185,83,47,.22);
-    --grid: #ece5df; --good: #2e8b57; --warn: #a8761c; --bad: #c0392b;
+    color-scheme: light;
+    --bg: #f6f3f0; --surface: #ffffff; --surface-2: #f3eeea; --surface-3: #ebe4de;
+    --line: #ece5df; --line-2: #e0d7cf; --line-ctl: #93877e;
+    --ink: #1d1916; --ink-2: #4f4741; --ink-3: #6f665f;
+    --accent: #b9532f; --on-accent: #ffffff;
+    --accent-soft: rgba(185, 83, 47, .09);
+    --series: #39312b; --series-band: rgba(57, 49, 43, .06); --series-bar: #7f746c;
+    --grid: #efe9e4; --track: #e6ddd6; --meter: #7f746c; --muted-fill: #c4b9b0;
+    --good: #1f7a4d; --warn: #8a6500; --bad: #c22a55;
+    /* Meter fill for Low: #8a6500 is text-dark and too close to the neutral meter as a fill. */
+    --warn-fill: #c98a00;
+    --good-bg: rgba(31, 122, 77, .09); --good-bd: rgba(31, 122, 77, .32);
+    --warn-bg: rgba(138, 101, 0, .09); --warn-bd: rgba(138, 101, 0, .34);
+    --bad-bg: rgba(194, 42, 85, .08); --bad-bd: rgba(194, 42, 85, .34);
+    --neutral-bg: rgba(29, 25, 22, .04); --neutral-bd: rgba(29, 25, 22, .16);
+    --focus: #1f5fcf;
+    --shadow: 0 12px 32px rgba(60, 40, 30, .16);
   }
+
+  /* ---------- Base ---------- */
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 400 var(--t-sm)/1.5 var(--font); -webkit-font-smoothing: antialiased; }
   button, select, input { font: inherit; color: inherit; }
-  .wrap { max-width: 1080px; margin: 0 auto; padding: 24px 20px 64px; }
-  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; }
-  header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
-  h1 { font-size: 26px; margin: 0; letter-spacing: -.01em; }
-  .sub { font-family: var(--mono); font-size: 12px; color: var(--ink-3); margin-top: 4px; }
-  .sub b { color: var(--good); font-weight: 500; }
-  .btn { background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 6px 14px; cursor: pointer; font-size: 13px; }
-  .btn:hover { border-color: var(--ink-3); }
-  .btn.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
-  .btn.small { padding: 3px 10px; font-size: 12px; }
-  .btn:disabled { opacity: .5; cursor: default; }
-  .icon-btn { background: none; border: 1px solid var(--border); border-radius: 8px; width: 32px; height: 32px; cursor: pointer; }
-  .row { display: flex; align-items: center; gap: 8px; }
-  .spacer { flex: 1; }
-  .summary { padding: 18px 20px 12px; }
-  .headline { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-  .headline .big { font-size: 30px; font-weight: 650; color: var(--accent); font-variant-numeric: tabular-nums; }
-  .headline .of { color: var(--ink-2); }
-  .headline .rate { color: var(--ink-3); font-size: 13px; margin-left: 8px; }
-  .tabs { display: flex; gap: 4px; margin: 12px 0 6px; border-bottom: 1px solid var(--border); }
-  .tab { background: none; border: 0; border-bottom: 2px solid transparent; padding: 6px 10px; cursor: pointer; color: var(--ink-3); font-size: 13px; }
-  .tab.on { color: var(--accent); border-color: var(--accent); }
-  .controls { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--ink-3); margin: 8px 0; }
-  .legend-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-right: 5px; }
-  .legend-dash { display: inline-block; width: 14px; border-top: 2px dashed var(--accent); margin-right: 5px; vertical-align: middle; }
-  select { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 3px 8px; font-size: 12px; }
-  .chart { position: relative; height: 260px; }
-  .chart svg { display: block; width: 100%; height: 100%; }
-  .axis { fill: var(--ink-3); font-size: 11px; font-family: var(--mono); }
-  .tooltip { position: absolute; pointer-events: none; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px; font-size: 12px; white-space: nowrap; display: none; box-shadow: 0 6px 18px rgba(0,0,0,.25); }
-  .tooltip .v { font-weight: 600; font-variant-numeric: tabular-nums; }
-  .tooltip .t { color: var(--ink-3); }
-  .foot { display: flex; justify-content: space-between; font-size: 12px; color: var(--ink-2); padding: 6px 0 2px; flex-wrap: wrap; gap: 8px; }
-  .settings { display: none; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); padding: 8px 0 2px; }
-  .settings.on { display: flex; }
-  .linkish { background: none; border: 0; color: var(--ink-2); cursor: pointer; font-size: 12px; padding: 0; }
-  .toolbar { display: flex; gap: 10px; align-items: center; margin: 18px 0 10px; }
-  .search { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; }
-  .group-head { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; font-size: 13px; }
-  .group-head .muted { color: var(--ink-3); font-size: 12px; }
-  .cred { display: grid; grid-template-columns: minmax(170px, 1.3fr) repeat(3, minmax(120px, 1fr)) auto; gap: 16px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--border); }
-  .cred:last-child { border-bottom: 0; }
-  .cred .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .cred .meta { font-size: 12px; color: var(--ink-3); }
-  .cred .meta .cool { color: var(--bad); }
-  .cred .meta .err { color: var(--warn); }
-  .win { font-size: 12px; min-width: 0; }
-  .win .top { display: flex; justify-content: space-between; color: var(--ink-2); }
-  .win .top b { color: var(--ink); font-variant-numeric: tabular-nums; }
-  .win.na { opacity: .4; }
-  .bar { height: 5px; border-radius: 3px; background: var(--grid); margin: 4px 0 3px; overflow: hidden; }
-  .bar > i { display: block; height: 100%; border-radius: 3px; }
-  .win .when { color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .actions { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
-  .empty { padding: 28px; text-align: center; color: var(--ink-3); }
-  .login { max-width: 380px; margin: 12vh auto; padding: 24px; }
-  .login input { width: 100%; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px; margin: 12px 0; }
-  .error-text { color: var(--bad); font-size: 12px; min-height: 16px; }
-  table.data { width: 100%; border-collapse: collapse; font-size: 12px; font-family: var(--mono); }
-  table.data td, table.data th { padding: 3px 8px; border-bottom: 1px solid var(--border); text-align: right; }
+  h1, h2, h3, p { margin: 0; }
+  [hidden] { display: none !important; }
+  .sr-only { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .num { font-variant-numeric: tabular-nums; }
+  .nw { white-space: nowrap; }
+  code { font-family: var(--mono); font-size: var(--t-xs); }
+  .i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+  .i.sm { width: 14px; height: 14px; }
+  .i.lg { width: 24px; height: 24px; stroke-width: 1.5; }
+  ::placeholder { color: var(--ink-3); opacity: 1; }
+
+  /* ---------- Controls ---------- */
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--s2); height: var(--h-md); padding: 0 var(--s3);
+    background: var(--surface-2); border: 1px solid var(--line-2); border-radius: var(--r2); cursor: pointer; font-size: var(--t-sm); font-weight: 500;
+    white-space: nowrap; color: var(--ink); text-decoration: none; }
+  .btn:hover { background: var(--surface-3); border-color: var(--line-ctl); }
+  .btn.ghost { background: transparent; border-color: transparent; color: var(--ink-2); }
+  .btn.ghost:hover { background: var(--surface-2); color: var(--ink); border-color: var(--line-2); }
+  .btn.icon { width: var(--h-md); padding: 0; }
+  .btn.sm { height: var(--h-sm); padding: 0 var(--s2); font-size: var(--t-xs); gap: var(--s1); }
+  .btn.sm.icon { width: var(--h-sm); padding: 0; }
+  .btn.lg { height: var(--h-lg); padding: 0 var(--s4); font-size: var(--t-md); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  .btn.primary:hover { filter: brightness(1.06); }
+  .btn[aria-pressed="true"] { color: var(--ink); background: var(--surface-2); border-color: var(--line-2); }
+  .btn[aria-expanded="true"] { color: var(--ink); background: var(--surface-3); border-color: var(--line-ctl); }
+  .btn[aria-disabled="true"] { cursor: progress; }
+  @media (prefers-reduced-motion: no-preference) {
+    .busy .spin, .spin.on { animation: spin .8s linear infinite; }
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .field { position: relative; display: inline-flex; align-items: center; height: var(--h-md); border: 1px solid var(--line-ctl); border-radius: var(--r2);
+    background: var(--surface); font-size: var(--t-sm); min-width: 0; }
+  .field:hover { background: var(--surface-2); }
+  .field:focus-within { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .field > span { padding-left: var(--s3); color: var(--ink-3); white-space: nowrap; pointer-events: none; }
+  .field select { appearance: none; -webkit-appearance: none; height: 100%; border: 0; background: transparent; padding: 0 30px 0 var(--s2); cursor: pointer;
+    font-weight: 500; color: var(--ink); min-width: 0; border-radius: var(--r2); }
+  .field select:focus-visible { outline: none; }
+  .field select option { background: var(--surface); color: var(--ink); }
+  .field .chev { position: absolute; right: 9px; top: 50%; margin-top: -7px; color: var(--ink-3); pointer-events: none; }
+
+  .search { position: relative; display: flex; align-items: center; height: var(--h-md); min-width: 0; flex: 1 1 220px; max-width: 320px;
+    border: 1px solid var(--line-ctl); border-radius: var(--r2); background: var(--surface); }
+  .search:focus-within { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .search > .i { position: absolute; left: 10px; color: var(--ink-3); pointer-events: none; }
+  .search input { width: 100%; min-width: 0; height: 100%; border: 0; background: transparent; padding: 0 var(--s3) 0 34px; font-size: var(--t-sm); border-radius: var(--r2); }
+  .search input:focus-visible { outline: none; }
+  .search input::-webkit-search-cancel-button { filter: grayscale(1); opacity: .6; }
+
+  .seg { display: inline-flex; padding: 2px; gap: 2px; background: var(--surface-2); border: 1px solid var(--line-2); border-radius: var(--r2); height: var(--h-md); }
+  .seg button { height: 100%; padding: 0 var(--s3); border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--ink-3); cursor: pointer;
+    font-size: var(--t-sm); font-weight: 500; }
+  .seg button:hover { color: var(--ink); }
+  .seg button.on { background: var(--surface); color: var(--ink); border-color: var(--line-ctl); box-shadow: inset 0 -2px 0 var(--accent); }
+  .seg button:focus-visible { outline-offset: 0; }
+
+  /* ---------- Badges ---------- */
+  .badge { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 var(--s2); border-radius: 999px; font-size: var(--t-xs); font-weight: 500;
+    white-space: nowrap; border: 1px solid var(--neutral-bd); background: var(--neutral-bg); color: var(--ink-2); }
+  .badge .i { width: 13px; height: 13px; stroke-width: 2; }
+  .badge.good { color: var(--good); border-color: var(--good-bd); background: var(--good-bg); }
+  .badge.warn { color: var(--warn); border-color: var(--warn-bd); background: var(--warn-bg); }
+  .badge.bad { color: var(--bad); border-color: var(--bad-bd); background: var(--bad-bg); }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
+
+  /* ---------- Layout ---------- */
+  .wrap { max-width: 1200px; margin: 0 auto; padding: var(--s6) var(--s6) var(--s12); }
+  @media (min-width: 1680px) { .wrap { max-width: 1360px; } }
+  .card { background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r3); }
+  main > * + * { margin-top: var(--s4); }
+
+  /* Header */
+  .top { display: flex; align-items: center; justify-content: space-between; gap: var(--s3) var(--s4); flex-wrap: wrap; margin-bottom: var(--s6); }
+  .brand { display: flex; align-items: center; gap: var(--s3); flex: 1 1 0; min-width: 0; }
+  .mark { display: grid; place-items: center; width: 36px; height: 36px; border-radius: var(--r2); background: var(--accent-soft); color: var(--accent); flex: none; }
+  .mark .i { width: 20px; height: 20px; }
+  h1 { font-size: var(--t-lg); font-weight: 600; letter-spacing: -.015em; line-height: 1.25; }
+  .status { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: var(--t-xs); color: var(--ink-3); min-height: 18px; }
+  .status .dot { color: var(--good); }
+  .status.warn, .status.warn .dot { color: var(--warn); }
+  .status.bad { color: var(--bad); }
+  .status.idle .dot { color: var(--ink-3); }
+  .status .i { width: 13px; height: 13px; }
+  .status .meta { margin-right: var(--s2); }
+  .status .fresh { display: inline-flex; align-items: center; gap: 6px; }
+  .status .att { color: var(--warn); }
+  .status .btn { height: 22px; padding: 0 var(--s2); font-size: var(--t-xs); margin-left: var(--s1); }
+  .top-actions { display: flex; align-items: center; gap: var(--s2); flex: none; }
+  .top-actions .sep { width: 1px; height: 20px; background: var(--line-2); margin: 0 var(--s1); }
+
+  /* Notice */
+  .notice { display: flex; gap: var(--s3); align-items: flex-start; padding: var(--s4) var(--s5); border-radius: var(--r3); border: 1px solid var(--line-2); background: var(--surface); }
+  .notice.bad { border-color: var(--bad-bd); background: var(--bad-bg); }
+  .notice.bad > .i { color: var(--bad); }
+  .notice.info > .i { color: var(--ink-3); }
+  .notice h2 { font-size: var(--t-md); font-weight: 600; }
+  .notice p { color: var(--ink-2); margin-top: 2px; overflow-wrap: anywhere; }
+  .notice .actions { display: flex; gap: var(--s2); margin-top: var(--s3); flex-wrap: wrap; }
+  .notice.slim { padding: var(--s2) var(--s4); align-items: center; color: var(--ink-2); }
+
+  /* Stat tiles */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(232px, 1fr)); gap: var(--s3); }
+  .tile { position: relative; display: flex; flex-direction: column; gap: var(--s2); padding: var(--s4); background: var(--surface); border: 1px solid var(--line-2);
+    border-radius: var(--r3); min-width: 0; }
+  .tile.pick { cursor: pointer; }
+  .tile.pick:hover { border-color: var(--line-ctl); }
+  .tile.sel { border-color: var(--ink-3); }
+  /* Tiles share row tracks (heading, number, bar, details, verdict), so sections line up across a row. */
+  @supports (grid-template-rows: subgrid) {
+    @media (min-width: 641px) {
+      .tiles { grid-auto-rows: auto auto auto auto max-content; }
+      .tile { display: grid; grid-row: span 5; grid-template-rows: subgrid; }
+      .creds-tile > :last-child { grid-row: span 3; min-height: 0; align-self: start; }
+      .verdict { align-self: start; }
+    }
+  }
+  .tile-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); min-height: 28px; }
+  .tile-head h3 { font-size: var(--t-md); font-weight: 600; color: var(--ink); min-width: 0; }
+  /* The tile's one control. Its ::after stretches over the tile so a click anywhere picks the window. */
+  .tile-btn { display: inline-flex; align-items: center; gap: var(--s1); height: var(--h-sm); padding: 0 var(--s2); flex: none; border: 1px solid var(--line-2); border-radius: var(--r2);
+    background: transparent; color: var(--ink-2); font-size: var(--t-xs); font-weight: 500; cursor: pointer; white-space: nowrap; }
+  .tile-btn .i { width: 14px; height: 14px; }
+  .tile-btn::after { content: ""; position: absolute; inset: 0; border-radius: var(--r3); }
+  .tile.pick:hover .tile-btn { color: var(--ink); border-color: var(--line-ctl); }
+  .tile-btn[aria-pressed="true"], .tile.pick:hover .tile-btn[aria-pressed="true"] { color: var(--ink); border-color: transparent; background: var(--surface-3); }
+  .tile-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  @supports selector(:has(*)) {
+    .tile-btn:focus-visible { outline: none; }
+    .tile:has(.tile-btn:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
+  }
+  .tile-value { display: flex; align-items: baseline; gap: 6px; }
+  .tile-value .big { font-size: var(--t-xl); font-weight: 600; letter-spacing: -.02em; line-height: 1.1; }
+  .tile-value .unit { color: var(--ink-3); font-size: var(--t-sm); }
+  .tile-value .big.muted { color: var(--ink-3); }
+  .poolbar { height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; }
+  .poolbar > i { display: block; height: 100%; background: var(--meter); border-radius: 3px; }
+  .poolbar.warn > i { background: var(--warn-fill); }
+  .poolbar.bad > i { background: var(--bad); }
+  .poolbar.empty { background: var(--bad-bg); box-shadow: inset 0 0 0 1px var(--bad-bd); }
+  .poolbar.empty > i { width: 3px !important; background: var(--bad); }
+  .tile-sub { font-size: var(--t-sm); color: var(--ink-3); line-height: 1.45; overflow-wrap: anywhere; }
+  .tile-sub + .tile-sub { margin-top: var(--s2); }
+  .tile-sub b { color: var(--ink-2); font-weight: 500; }
+  .verdict { display: flex; gap: var(--s2); align-items: flex-start; padding-top: var(--s1); }
+  .verdict .i { margin-top: 2px; flex: none; }
+  .verdict.warn, .verdict.bad { padding: var(--s2) var(--s3); border-radius: var(--r2); }
+  .verdict.warn { background: var(--warn-bg); box-shadow: inset 0 0 0 1px var(--warn-bd); }
+  .verdict.bad { background: var(--bad-bg); box-shadow: inset 0 0 0 1px var(--bad-bd); }
+  .verdict.good .i { color: var(--good); }
+  .verdict.bad .i { color: var(--bad); }
+  .verdict.warn .i { color: var(--warn); }
+  .verdict.neutral .i { color: var(--ink-3); }
+  .verdict .v-main { font-size: var(--t-md); font-weight: 600; color: var(--ink); line-height: 1.4; }
+  .verdict.good .v-main, .verdict.neutral .v-main { font-weight: 500; }
+  .verdict .v-sub { font-size: var(--t-sm); color: var(--ink-2); margin-top: 2px; }
+  .goto { all: unset; cursor: pointer; color: var(--ink-2); text-decoration: underline; text-decoration-color: var(--line-ctl); text-underline-offset: 2px; }
+  .goto:hover { color: var(--ink); text-decoration-color: currentColor; }
+  .goto:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 2px; }
+  .probs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s2); }
+  .prob { display: flex; gap: var(--s2); align-items: flex-start; font-size: var(--t-sm); color: var(--ink-2); line-height: 1.45; min-width: 0; }
+  .prob > .i { flex: none; width: 14px; height: 14px; margin-top: 2px; color: var(--ink-3); }
+  .prob.bad > .i { color: var(--bad); }
+  .prob.warn > .i { color: var(--warn); }
+  .prob p { min-width: 0; overflow-wrap: anywhere; }
+  .prob b { font-weight: 600; color: var(--ink); }
+  .prob .goto { color: var(--ink); }
+  .p-act { display: inline-flex; align-items: center; height: 22px; padding: 0 var(--s2); margin: 1px 0; vertical-align: baseline; border: 1px solid var(--line-ctl); border-radius: var(--r2);
+    background: transparent; color: var(--ink-2); font: inherit; font-size: var(--t-xs); font-weight: 500; cursor: pointer; white-space: nowrap; }
+  .p-act:hover { color: var(--ink); border-color: var(--ink-3); }
+  .p-act[aria-disabled="true"] { opacity: .55; cursor: progress; }
+  .p-act:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .all-ok { display: flex; gap: var(--s2); align-items: center; font-size: var(--t-sm); color: var(--ink-2); }
+  .all-ok .i { width: 14px; height: 14px; color: var(--good); flex: none; }
+  .tile-brief { display: none; }
+  .cred-table.nospark th.sp, .cred-table.nospark td.sp { display: none; }
+  .cred-table tbody tr.flash > * { background: var(--accent-soft) !important; }
+  .skel { background: linear-gradient(90deg, var(--surface-2), var(--surface-3), var(--surface-2)); background-size: 200% 100%; border-radius: var(--r1); }
+  @media (prefers-reduced-motion: no-preference) { .skel { animation: shimmer 1.4s ease-in-out infinite; } }
+  @keyframes shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+
+  /* Chart card */
+  .card-head { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; padding: var(--s3) var(--s4); border-bottom: 1px solid var(--line); }
+  .card-head .spacer { flex: 1; }
+  .card-head h2 { font-size: var(--t-md); font-weight: 600; display: flex; align-items: baseline; gap: var(--s2); }
+  .card-head h2 .count { font-size: var(--t-xs); color: var(--ink-3); font-weight: 400; }
+  .settings { display: flex; gap: var(--s3) var(--s4); flex-wrap: wrap; align-items: center; padding: var(--s3) var(--s4); border-bottom: 1px solid var(--line); background: var(--surface-2); }
+  .settings .field { background: var(--surface); }
+  .settings p { color: var(--ink-3); font-size: var(--t-xs); flex: 1 1 280px; }
+  .settings p.rates { flex-basis: 100%; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .settings p.rates strong { color: var(--ink); font-weight: 600; }
+  .settings p.rates .sec { color: var(--ink-3); }
+  .chart-body { padding: var(--s3) var(--s4) var(--s4); }
+  .legend { display: flex; gap: var(--s1) var(--s4); flex-wrap: wrap; font-size: var(--t-xs); color: var(--ink-2); min-height: 18px; align-items: center; }
+  .key { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .k-line { width: 16px; height: 2px; background: var(--series); border-radius: 1px; }
+  .k-dash { width: 16px; height: 0; border-top: 2px dashed var(--series); }
+  .k-bar { width: 10px; height: 10px; background: var(--series-bar); border-radius: 2px 2px 0 0; }
+  .k-ref { width: 16px; height: 0; border-top: 1px dashed var(--ink-2); }
+  .k-empty { width: 16px; height: 3px; background: var(--bad); border-radius: 2px; }
+  .chart { position: relative; height: 300px; margin-top: var(--s2); }
+  .chart.is-empty { height: 240px; }
+  .chart svg { display: block; width: 100%; height: 100%; overflow: visible; touch-action: pan-y; }
+  .chart svg:focus-visible { outline-offset: 4px; border-radius: var(--r1); }
+  .axis { fill: var(--ink-3); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .axis-lbl { fill: var(--ink-2); font-size: 12px; paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
+  .now-pill { fill: var(--surface-3); }
+  .now-txt { fill: var(--ink-2); font-size: 12px; font-weight: 500; }
+  .out-pill { fill: var(--bad-bg); stroke: var(--bad-bd); stroke-width: 1; }
+  .out-txt { fill: var(--bad); font-size: 12px; font-weight: 500; }
+  .chart-msg { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: var(--s2);
+    padding: var(--s4); color: var(--ink-2); }
+  .chart-msg .i { color: var(--ink-3); }
+  .chart-msg .msg-title { font-size: var(--t-md); font-weight: 600; color: var(--ink); max-width: 44ch; }
+  .chart-msg .msg-body { max-width: 52ch; color: var(--ink-2); }
+  .chart-msg .actions { display: flex; gap: var(--s2); flex-wrap: wrap; justify-content: center; margin-top: var(--s1); }
+  .tooltip { position: absolute; z-index: 3; pointer-events: none; background: var(--surface-2); border: 1px solid var(--line-ctl); border-radius: var(--r2);
+    padding: var(--s2) var(--s3); font-size: var(--t-xs); white-space: nowrap; box-shadow: var(--shadow); min-width: 140px; }
+  .tooltip .tt-time { color: var(--ink-3); }
+  .tooltip .tt-val { font-size: var(--t-md); font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .tooltip .tt-sub { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .caption { margin-top: var(--s3); font-size: var(--t-xs); color: var(--ink-3); max-width: 100ch; }
+  details.table-panel[open] { border-top: 1px solid var(--line); }
+  details.table-panel > summary { display: none; }
+  .table-scroll { max-height: 320px; overflow: auto; scrollbar-width: thin; scrollbar-color: var(--line-ctl) transparent; }
+  table.data { width: 100%; border-collapse: collapse; font-size: var(--t-xs); font-variant-numeric: tabular-nums; }
+  .table-cap { padding: var(--s3) var(--s4) var(--s2); font-size: var(--t-xs); color: var(--ink-3); }
+  table.data th, table.data td { padding: 6px var(--s4); border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+  table.data thead th { position: sticky; top: 0; background: var(--surface); color: var(--ink-3); font-weight: 500; z-index: 1; }
   table.data th:first-child, table.data td:first-child { text-align: left; }
-  details summary { cursor: pointer; font-size: 12px; color: var(--ink-3); margin-top: 6px; }
-  .table-scroll { max-height: 240px; overflow: auto; }
+  table.data tbody th { text-align: left; color: var(--ink-2); font-weight: 600; background: var(--surface-2); }
+
+  /* Credentials table */
+  .creds .card-head { gap: var(--s2) var(--s3); }
+  .cred-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: var(--t-sm); table-layout: fixed; }
+  .cred-table thead th { position: sticky; top: 0; z-index: 2; background: var(--surface); text-align: left; font-size: var(--t-xs); font-weight: 500; color: var(--ink-3);
+    padding: var(--s2) var(--s4); border-bottom: 1px solid var(--line-2); white-space: nowrap; letter-spacing: .01em; }
+  .cred-table thead th.sel { color: var(--ink); }
+  .cred-table thead th.sel span { box-shadow: inset 0 -2px 0 var(--accent); padding-bottom: 3px; }
+  .cred-table td, .cred-table tbody th { padding: var(--s3) var(--s4); border-bottom: 1px solid var(--line); vertical-align: top; text-align: left; font-weight: 400; }
+  .cred-table tbody tr:last-child > * { border-bottom: 0; }
+  .cred-table tbody tr:hover > * { background: var(--neutral-bg); }
+  .cred-table tbody tr.off .who-name { color: var(--ink-2); }
+  /* Set widths for the name, history and action columns; the window columns share the rest equally. */
+  .cred-table thead th:first-child { width: 240px; }
+  .cred-table th.sp { width: 200px; white-space: normal; }
+  .cred-table th.act { width: 72px; }
+  .cred-table th.act, .cred-table td.act { white-space: nowrap; text-align: right; }
+  .who-name { font-size: var(--t-md); font-weight: 500; overflow-wrap: anywhere; line-height: 1.35; }
+  /* A masked name stays on one line; the domain truncates before the name splits at "@". */
+  .who-name.masked { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .who-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s1) var(--s2); color: var(--ink-3); font-size: var(--t-xs); margin-top: 2px; }
+  .who-meta code { margin-right: var(--s1); }
+  .who-meta .badge { height: 20px; }
+  .who-err { display: flex; gap: 6px; align-items: flex-start; margin-top: var(--s1); font-size: var(--t-xs); color: var(--ink-2); max-width: 52ch; }
+  .who-err .i { color: var(--warn); margin-top: 1px; width: 13px; height: 13px; }
+  .who-err.bad .i { color: var(--bad); }
+  .who-err span, .err-full { overflow-wrap: anywhere; }
+  summary.who-err { cursor: pointer; }
+  .who-err::-webkit-details-marker { display: none; }
+  .who-err u { color: var(--ink); text-decoration-color: var(--line-ctl); text-underline-offset: 2px; }
+  .err-full { margin: 2px 0 0 19px; max-width: 52ch; font-size: var(--t-xs); color: var(--ink-2); }
+  .spark { display: block; width: 100%; height: 32px; overflow: visible; }
+  .spark .sp-base { stroke: var(--line-2); stroke-width: 1; vector-effect: non-scaling-stroke; }
+  .spark .sp-top { stroke: var(--grid); stroke-width: 1; stroke-dasharray: 2 3; vector-effect: non-scaling-stroke; }
+  .spark .sp-area { fill: var(--series-band); }
+  .spark .sp-line { fill: none; stroke: var(--series); stroke-width: 1.25; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+  .spark.off .sp-line { stroke: var(--ink-3); stroke-dasharray: 3 2; }
+  .spark-cap { font-size: var(--t-xs); color: var(--ink-3); margin-top: 3px; line-height: 1.3; }
+  .who-meta .spark-cap { display: none; margin: 0; }
+  .cred-foot { display: flex; align-items: center; gap: var(--s2); padding: var(--s3) var(--s4); border-top: 1px solid var(--line); font-size: var(--t-xs); color: var(--ink-3); }
+  .cred-foot[hidden] { display: none; }
+  @media (min-width: 761px) { .foot-spark { display: none; } }
+  .tick-key { flex: none; position: relative; width: 28px; height: 6px; border-radius: 3px; background: var(--track); }
+  .tick-key::after { content: ''; position: absolute; left: 55%; top: -4px; bottom: -4px; width: 2px; border-radius: 1px; background: var(--ink-2); box-shadow: 0 0 0 1px var(--surface); }
+  .m-top { display: flex; align-items: center; gap: var(--s2); }
+  .m-val { font-weight: 600; min-width: 44px; font-variant-numeric: tabular-nums; }
+  .m-val.muted, .m-val.off { color: var(--ink-3); font-weight: 500; }
+  .bar { position: relative; flex: 1; height: 6px; border-radius: 3px; background: var(--track); min-width: 40px; }
+  .bar > i { position: absolute; left: 0; top: 0; bottom: 0; max-width: 100%; border-radius: 3px; background: var(--meter); }
+  .bar > b { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--ink-2); box-shadow: 0 0 0 1px var(--surface); }
+  .bar.off { background: transparent; box-shadow: inset 0 0 0 1px var(--line-2); }
+  .bar.off > i { background: repeating-linear-gradient(135deg, var(--muted-fill) 0 2px, transparent 2px 5px); box-shadow: inset 0 0 0 1px var(--muted-fill); }
+  .m-tag { flex: none; font-size: var(--t-xs); font-weight: 500; color: var(--ink-2); }
+  .m-tag.off { color: var(--ink-3); font-weight: 400; }
+  .bar.warn > i { background: var(--warn-fill); }
+  .bar.bad > i { background: var(--bad); }
+  .bar.muted > i { background: var(--muted-fill); }
+  .bar.empty { background: var(--bad-bg); box-shadow: inset 0 0 0 1px var(--bad-bd); }
+  .bar.empty > i { width: 3px !important; background: var(--bad); }
+  .m-when { font-size: var(--t-xs); color: var(--ink-3); margin-top: 3px; }
+  .m-when b { color: var(--ink-2); font-weight: 500; }
+  .m-na { font-size: var(--t-xs); color: var(--ink-3); }
+  .m-label { display: none; }
+  .act-wrap { display: inline-flex; align-items: center; gap: var(--s2); }
+  .empty-row td { text-align: center; padding: var(--s8) var(--s4) !important; color: var(--ink-2); }
+  .empty-row .actions { margin-top: var(--s3); display: flex; justify-content: center; gap: var(--s2); }
+  .empty-row .msg-title { font-weight: 600; color: var(--ink); font-size: var(--t-md); }
+  .skel-row td { padding: var(--s4); }
+
+  /* Login */
+  .login { min-height: 100vh; display: grid; place-items: center; padding: var(--s6) var(--s4); }
+  .login-card { width: min(360px, 100%); padding: var(--s8); background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r3); display: flex; flex-direction: column; gap: var(--s2); }
+  .login-brand { display: flex; align-items: center; gap: var(--s2); color: var(--ink-3); font-size: var(--t-xs); font-weight: 500; margin-bottom: var(--s2); }
+  .login-brand .mark { width: 28px; height: 28px; }
+  .login-brand .mark .i { width: 16px; height: 16px; }
+  .login-card h1 { font-size: var(--t-lg); }
+  .login-card .lead { color: var(--ink-2); margin-bottom: var(--s3); }
+  .login-card label { font-size: var(--t-xs); font-weight: 500; color: var(--ink-2); }
+  .login-card input { height: var(--h-lg); width: 100%; padding: 0 var(--s3); border: 1px solid var(--line-ctl); border-radius: var(--r2); background: var(--surface-2); font-size: var(--t-md); }
+  .login-card input:focus-visible { outline-offset: 1px; }
+  .login-card input[aria-invalid="true"] { border-color: var(--bad); }
+  .field-error { display: flex; gap: 6px; align-items: flex-start; color: var(--bad); font-size: var(--t-xs); min-height: 18px; }
+  .field-error:empty { min-height: 0; }
+  .field-error .i { width: 14px; height: 14px; margin-top: 1px; }
+  .help { color: var(--ink-3); font-size: var(--t-xs); }
+  .login-card .btn { width: 100%; margin-top: var(--s2); }
+
+  /* ---------- Responsive ---------- */
+  @media (max-width: 1080px) {
+    .cred-table thead th:first-child { width: 220px; }
+    .cred-table th.sp { width: 160px; }
+  }
+  @media (min-width: 761px) and (max-width: 1080px) {
+    .tiles.n4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    /* Three window columns need the room; the history sparkline returns on the cards below 760 px. */
+    .cred-table.w3 th.sp, .cred-table.w3 td.sp { display: none; }
+  }
+  @media (min-width: 761px) and (max-width: 960px) {
+    /* Two window columns need the room; the history sparkline returns on the cards below 760 px. */
+    .cred-table th.sp, .cred-table td.sp { display: none; }
+  }
+  @media (max-width: 860px) {
+    .wrap { padding: var(--s5) var(--s4) var(--s12); }
+  }
   @media (max-width: 760px) {
-    .cred { grid-template-columns: 1fr 1fr; }
-    .actions { flex-direction: row; grid-column: 1 / -1; justify-content: flex-start; }
+    .cred-table thead { display: none; }
+    .cred-table, .cred-table tbody { display: block; }
+    .cred-table tbody tr { display: flex; flex-wrap: wrap; gap: var(--s3) var(--s4); padding: var(--s4); border-bottom: 1px solid var(--line); }
+    .cred-table tbody tr:last-child { border-bottom: 0; }
+    .cred-table tbody tr:hover > * { background: transparent; }
+    .cred-table td, .cred-table tbody th { display: block; padding: 0; border: 0; width: auto !important; }
+    /* Name, sparkline and refresh share the first line; then one line per window, so bars line up down the list. */
+    .cred-table .who { flex: 1 1 0; min-width: 0; order: 1; }
+    .cred-table td.sp { flex: 0 1 25%; max-width: 120px; min-width: 64px; order: 2; }
+    .cred-table td.act { flex: none; order: 3; }
+    .cred-table td.sp .m-label, .cred-table td.sp.none, .spark-wrap .spark-cap { display: none; }
+    /* On cards the caption moves under the name, so every sparkline keeps one width. */
+    .who-meta .spark-cap { display: block; }
+    .spark-wrap .spark { height: 24px; }
+    .cred-table td.mc { flex: 1 1 100%; order: 4; display: grid; grid-template-columns: 84px minmax(0, 1fr); column-gap: var(--s3); align-items: center; }
+    .cred-table td.mc .m-when { grid-column: 2; margin-top: 0; }
+    .m-label { display: block; font-size: var(--t-xs); color: var(--ink-3); }
+    .top-actions .lbl, .chart-card .card-head .field > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+    .top-actions .btn.ghost, .top-actions .btn.tog { width: var(--h-md); padding: 0; }
+    .top-actions .sep { display: none; }
+    .chart-card .card-head { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) auto auto; }
+    .chart-card .card-head .seg { grid-column: 1 / 5; }
+    .chart-card .card-head .field { grid-row: 2; grid-column: span 3; }
+    .chart-card .card-head .seg button { flex: 1; }
+    .chart-card .card-head .spacer { display: none; }
+    .chart-card .card-head .field select { flex: 1; padding-left: var(--s3); }
+    .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    /* Credentials is always the last tile; on an odd slot it takes the whole row instead of sitting alone. */
+    .tiles > .creds-tile:nth-child(odd) { grid-column: 1 / -1; }
+    .m-label.sel { color: var(--ink); font-weight: 500; }
+    .empty-row td { flex: 1 1 100%; }
+    .cred-table td.m-na { flex: 1 1 100%; order: 4; }
+    /* Disabled rows: the badge already says the values are last known. */
+    .cred-table tr.off td.mc .m-when { display: none; }
+  }
+  @media (min-width: 641px) and (max-width: 760px) {
+    .cred-table td.mc { grid-template-columns: 84px minmax(0, 1fr) 248px; }
+    .cred-table td.mc .m-when { grid-area: 1 / 3; }
+  }
+  @media (max-width: 640px) {
+    .top { margin-bottom: var(--s4); }
+    .brand { flex: 1 1 100%; }
+    .top-actions { flex: 1 1 100%; justify-content: flex-start; }
+    .top-actions #refresh-all-btn { margin-left: auto; }
+    .tiles, .tiles.n4 { grid-template-columns: 1fr; gap: var(--s2); }
+    .tile { padding: var(--s3) var(--s4); }
+    /* Phones: the most urgent window keeps its full tile; the others fold to one line. */
+    .tile.pick:not(.lead) { padding: var(--s2) var(--s3); gap: 0; }
+    .tile.pick:not(.lead) > :not(.tile-head) { display: none; }
+    .tile.pick:not(.lead) .tile-head h3 { flex: none; }
+    .tile.pick:not(.lead) .tile-brief { display: block; flex: 1; min-width: 0; font-size: var(--t-sm); color: var(--ink-2); line-height: 1.4; }
+    .tile-brief b { color: var(--ink); font-weight: 600; }
+    .tile-brief .vk .i { width: 13px; height: 13px; margin-right: 3px; vertical-align: -2px; color: var(--ink-3); }
+    .tile-brief .vk.good .i { color: var(--good); }
+    .tile-brief .vk.warn .i { color: var(--warn); }
+    .tile-brief .vk.bad .i { color: var(--bad); }
+    .tile.pick:not(.lead) .tile-btn { width: var(--h-sm); padding: 0; justify-content: center; }
+    .tile.pick:not(.lead) .tile-btn .bt, .creds .card-head .field > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+    /* The header meta carries the credential count, so the tile only lists problems. */
+    .creds-tile .tile-value { display: none; }
+    .creds-tile.ok { display: none; }
+    .creds-tile .tile-head { min-height: 0; }
+    .chart { height: 260px; }
+    .chart.is-empty { height: 200px; }
+    .chart-body { padding: var(--s3); }
+    .card-head { padding: var(--s3); }
+    .creds .card-head h2 { flex: 1 1 100%; }
+    .creds .card-head .spacer { display: none; }
+    .creds .search { max-width: none; flex: 1 1 0; }
+    .creds .card-head .field { flex: 0 0 124px; padding-left: 0; }
+    .creds .card-head .field select { flex: 1; min-width: 0; }
+    .cred-table tbody tr { padding: var(--s3); gap: var(--s3); }
+    table.data th, table.data td { padding: 6px var(--s2); }
+  }
+  /* The sparkline gives up width first, so a masked name fits on its line. */
+  @media (max-width: 400px) { .cred-table td.sp { flex-basis: 16%; min-width: 48px; } }
+  @media (pointer: coarse) {
+    .btn, .field, .search, .seg { min-height: 40px; }
+    .btn.icon, .top-actions .btn { min-width: 40px; }
+    /* Tile actions get their own 40 px line; the 12 px gaps keep them clear of the name links' 11 px hit bands. */
+    .probs { gap: var(--s3); }
+    .p-act { display: flex; width: max-content; min-height: 40px; padding: 0 var(--s3); margin-top: var(--s3); }
+    .goto { display: inline-block; padding: 11px 2px; margin: -11px -2px; position: relative; z-index: 1; }
+    summary.who-err { padding-block: 11px; margin: 0 0 -11px; }
+    details[open] > summary.who-err { margin-bottom: 0; }
+    .seg { height: auto; }
+    .seg button { min-height: 40px; }
+  }
+  @media (forced-colors: active) {
+    .bar { border: 1px solid CanvasText; }
+    .bar > i, .poolbar > i, .k-line, .k-bar, .dot, .k-empty { background: Highlight; forced-color-adjust: none; }
+    .seg button.on { border-color: Highlight; }
+    .tile.sel { border-color: Highlight; }
   }
 </style>
 </head>
 <body>
-<div id="login" class="card login" hidden>
-  <h2 style="margin:0 0 4px">Quota Management</h2>
-  <div class="sub">Enter your management key</div>
-  <form id="login-form">
-    <input id="key-input" type="password" autocomplete="current-password" placeholder="Management key">
-    <div id="login-error" class="error-text"></div>
-    <button class="btn primary" type="submit">Continue</button>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="i-gauge" viewBox="0 0 24 24"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M10.73 5.08A10.4 10.4 0 0 1 12 5c7 0 10 7 10 7a13.2 13.2 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.5 13.5 0 0 0 2 12s3 7 10 7a9.7 9.7 0 0 0 5.39-1.61"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><path d="m2 2 20 20"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4"/></symbol>
+  <symbol id="i-table" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M12 3v18"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4M12 17h.01"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m5.6 5.6 12.8 12.8"/></symbol>
+  <symbol id="i-dashed" viewBox="0 0 24 24"><path d="M10.1 3.2a9 9 0 0 1 3.8 0M13.9 20.8a9 9 0 0 1-3.8 0M17.2 4.8a9 9 0 0 1 2.1 2.1M3.2 13.9a9 9 0 0 1 0-3.8M19.2 17.2a9 9 0 0 1-2.1 2.1M20.8 10.1a9 9 0 0 1 0 3.8M4.8 6.8a9 9 0 0 1 2.1-2.1M6.8 19.2a9 9 0 0 1-2.1-2.1"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><path d="M7.86 2h8.28L22 7.86v8.28L16.14 22H7.86L2 16.14V7.86Z"/><path d="M12 8v4M12 16h.01"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-5"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="m7 14 4-4 4 3 5-6"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+  <symbol id="i-plug" viewBox="0 0 24 24"><path d="M12 22v-5M9 8V2M15 8V2M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/></symbol>
+</svg>
+
+<div id="login" class="login" hidden>
+  <form id="login-form" class="login-card" novalidate>
+    <div class="login-brand"><span class="mark"><svg aria-hidden="true" class="i"><use href="#i-gauge"/></svg></span>CLIProxyAPI</div>
+    <h1>Quota Management</h1>
+    <p class="lead">Sign in with the proxy's management key.</p>
+    <label for="key-input">Management key</label>
+    <input id="key-input" type="password" autocomplete="current-password" spellcheck="false" aria-describedby="login-error login-help">
+    <p id="login-error" class="field-error" role="alert"></p>
+    <p id="login-help" class="help">The remote-management secret key from the proxy's config.yaml.</p>
+    <button class="btn primary lg" type="submit" id="login-submit">Continue</button>
   </form>
 </div>
 
 <div id="app" class="wrap" hidden>
-  <header>
-    <div>
-      <h1>Quota Management</h1>
-      <div class="sub" id="cred-count"></div>
+  <header class="top">
+    <div class="brand">
+      <span class="mark" aria-hidden="true"><svg aria-hidden="true" class="i"><use href="#i-gauge"/></svg></span>
+      <div style="min-width:0">
+        <h1>Quota Management</h1>
+        <p class="status" id="status" role="status" aria-live="polite" title="Reloads every minute"></p>
+      </div>
     </div>
-    <div class="row">
-      <button class="icon-btn" id="theme-btn" title="Toggle theme" aria-label="Toggle theme">&#9788;</button>
-      <button class="icon-btn" id="logout-btn" title="Forget key" aria-label="Forget key">&#8618;</button>
-      <button class="btn" id="emails-btn">Show emails</button>
-      <button class="btn primary" id="refresh-all-btn">&#8635; Refresh all credentials</button>
+    <div class="top-actions">
+      <button class="btn ghost tog" id="emails-btn" type="button" aria-pressed="false"><svg aria-hidden="true" class="i"><use href="#i-eye"/></svg><span class="lbl">Show emails</span></button>
+      <button class="btn ghost icon" id="theme-btn" type="button" aria-label="Switch to light theme" title="Switch to light theme"><svg aria-hidden="true" class="i"><use href="#i-sun"/></svg></button>
+      <span class="sep" aria-hidden="true"></span>
+      <button class="btn" id="refresh-all-btn" type="button"><svg aria-hidden="true" class="i spin"><use href="#i-refresh"/></svg><span>Refresh all</span></button>
+      <button class="btn ghost tog" id="logout-btn" type="button" title="Forget the stored key on this device"><svg aria-hidden="true" class="i"><use href="#i-logout"/></svg><span class="lbl">Sign out</span></button>
     </div>
   </header>
 
-  <section class="card summary">
-    <div class="headline">
-      <span class="big" id="remaining-pct">-</span>
-      <span class="of" id="capacity-pct"></span>
-      <span class="rate" id="drain-rate"></span>
-    </div>
-    <div class="tabs" role="tablist">
-      <button class="tab on" data-tab="remaining" role="tab">Remaining quota</button>
-      <button class="tab" data-tab="drain" role="tab">Drain rate</button>
-    </div>
-    <div class="controls">
-      <span id="legend"></span>
-      <span class="spacer"></span>
-      <label>Window
-        <select id="window-select">
-          <option value="seven_day">7-day</option>
-          <option value="fable">7-day Fable</option>
-          <option value="five_hour">5-hour</option>
-        </select>
-      </label>
-      <label>Next
-        <select id="horizon-select">
-          <option value="1">1 day</option>
-          <option value="3">3 days</option>
-          <option value="7" selected>7 days</option>
-          <option value="14">14 days</option>
-        </select>
-      </label>
-    </div>
-    <div class="chart" id="chart">
-      <svg id="chart-svg" role="img" aria-label="Remaining quota over time"></svg>
-      <div class="tooltip" id="tooltip"></div>
-    </div>
-    <div class="foot">
-      <span id="next-reset"></span>
-      <button class="linkish" id="settings-btn">&#9656; Forecast settings</button>
-    </div>
-    <div class="settings" id="settings">
-      <label>Drain rate from the last
-        <select id="lookback-select">
-          <option value="6">6 hours</option>
-          <option value="24" selected>24 hours</option>
-          <option value="72">3 days</option>
-          <option value="168">7 days</option>
-        </select>
-      </label>
-      <label>Drain order
-        <select id="order-select">
-          <option value="expiring" selected>Soonest reset first (expiring-first)</option>
-          <option value="even">Spread evenly</option>
-        </select>
-      </label>
-      <span id="runout"></span>
-    </div>
-    <details>
-      <summary>Data table</summary>
-      <div class="table-scroll"><table class="data" id="data-table"></table></div>
-    </details>
-  </section>
+  <main>
+    <div id="notice" hidden></div>
 
-  <div class="toolbar">
-    <input class="search" id="search" placeholder="Search by filename or email">
-    <select id="sort-select">
-      <option value="default">Default</option>
-      <option value="reset">Soonest reset</option>
-      <option value="remaining">Most remaining</option>
-      <option value="least">Least remaining</option>
-    </select>
-  </div>
+    <section aria-labelledby="h-pool">
+      <h2 id="h-pool" class="sr-only">Pool summary</h2>
+      <div class="tiles" id="tiles"></div>
+    </section>
 
-  <section class="card">
-    <div class="group-head"><span>Claude</span><span class="muted" id="group-meta"></span></div>
-    <div id="cred-list"></div>
-  </section>
+    <section class="card chart-card" aria-labelledby="h-chart">
+      <h2 id="h-chart" class="sr-only">Pool chart</h2>
+      <div class="card-head">
+        <div class="seg" role="group" aria-label="Chart view">
+          <button type="button" data-tab="remaining" class="on" aria-pressed="true">Remaining</button>
+          <button type="button" data-tab="drain" aria-pressed="false">Drain rate</button>
+        </div>
+        <span class="spacer"></span>
+        <label class="field" title="Which limit to chart"><span>Window</span>
+          <select id="window-select">
+            <option value="five_hour">5-hour</option>
+            <option value="seven_day">7-day</option>
+            <option value="fable">7-day Fable</option>
+          </select><svg aria-hidden="true" class="i sm chev"><use href="#i-chev"/></svg>
+        </label>
+        <label class="field" title="Days of history to show, and days to forecast"><span>Range</span>
+          <select id="horizon-select">
+            <option value="1">1 day</option>
+            <option value="3">3 days</option>
+            <option value="7">7 days</option>
+            <option value="14">14 days</option>
+          </select><svg aria-hidden="true" class="i sm chev"><use href="#i-chev"/></svg>
+        </label>
+        <button class="btn ghost icon" id="settings-btn" type="button" aria-expanded="false" aria-controls="settings" aria-label="Forecast settings" title="Forecast settings"><svg aria-hidden="true" class="i"><use href="#i-sliders"/></svg></button>
+        <button class="btn ghost icon" id="table-btn" type="button" aria-expanded="false" aria-controls="table-panel" aria-label="Show data table" title="Data table"><svg aria-hidden="true" class="i"><use href="#i-table"/></svg></button>
+      </div>
+      <div class="settings" id="settings" hidden>
+        <label class="field"><span>Drain rate from the last</span>
+          <select id="lookback-select">
+            <option value="6">6 hours</option>
+            <option value="24">24 hours</option>
+            <option value="72">3 days</option>
+            <option value="168">7 days</option>
+          </select><svg aria-hidden="true" class="i sm chev"><use href="#i-chev"/></svg>
+        </label>
+        <label class="field"><span>Drain order</span>
+          <select id="order-select">
+            <option value="expiring">Soonest reset first</option>
+            <option value="even">Spread evenly</option>
+          </select><svg aria-hidden="true" class="i sm chev"><use href="#i-chev"/></svg>
+        </label>
+        <p id="settings-rates" class="rates"></p>
+        <p id="settings-help"></p>
+      </div>
+      <div class="chart-body">
+        <div class="legend" id="legend"></div>
+        <div class="chart" id="chart">
+          <svg id="chart-svg" role="img" tabindex="0" aria-label="Remaining quota chart"></svg>
+          <div class="chart-msg" id="chart-msg" hidden></div>
+          <div class="tooltip" id="tooltip" hidden></div>
+          <p class="sr-only" id="chart-live" aria-live="polite"></p>
+        </div>
+        <p class="caption" id="chart-caption"></p>
+      </div>
+      <details class="table-panel" id="table-panel">
+        <summary>Data table</summary>
+        <p class="table-cap" id="data-cap"></p>
+        <div class="table-scroll"><table class="data" id="data-table" aria-labelledby="data-cap"></table></div>
+      </details>
+    </section>
+
+    <section class="card creds" aria-labelledby="h-creds">
+      <div class="card-head">
+        <h2 id="h-creds">Credentials <span class="count num" id="cred-meta"></span></h2>
+        <span class="spacer"></span>
+        <label class="search"><svg aria-hidden="true" class="i"><use href="#i-search"/></svg><span class="sr-only">Search credentials</span>
+          <input id="search" type="search" placeholder="Name or email" autocomplete="off" spellcheck="false"></label>
+        <label class="field"><span>Sort</span>
+          <select id="sort-select">
+            <option value="default">Name</option>
+            <option value="reset">Soonest reset</option>
+            <option value="remaining">Most remaining</option>
+            <option value="least">Least remaining</option>
+          </select><svg aria-hidden="true" class="i sm chev"><use href="#i-chev"/></svg>
+        </label>
+      </div>
+      <table class="cred-table" aria-labelledby="h-creds">
+        <thead id="cred-head"></thead>
+        <tbody id="cred-list"></tbody>
+      </table>
+      <p class="cred-foot" id="cred-foot" hidden></p>
+    </section>
+  </main>
 </div>
 
 <script>
 (() => {
+  'use strict';
   const KEY_STORE = 'cpa-quota-key';
   const PREFS_STORE = 'cpa-quota-prefs';
-  const HOUR = 3600e3;
+  const MIN = 60e3, HOUR = 3600e3, DAY = 24 * HOUR;
   const WINDOWS = {
     five_hour: { label: '5-hour', period: 5 * HOUR },
     seven_day: { label: '7-day', period: 168 * HOUR },
     fable: { label: '7-day Fable', period: 168 * HOUR },
   };
+  const WIN_ORDER = ['five_hour', 'seven_day', 'fable'];
+  const FALLBACK_ORDER = ['fable', 'five_hour', 'seven_day'];
+  const LOOKBACKS = [6, 24, 72, 168];
+  const LOOKBACK_LABEL = { 6: '6 h', 24: '24 h', 72: '3 days', 168: '7 days' };
+  // Verdicts name a lookback as a pace: "at the last 6 hours' pace", "at the 24-hour pace".
+  const PACE = { 6: "last 6 hours'", 24: '24-hour', 72: '3-day', 168: '7-day' };
   const $ = (id) => document.getElementById(id);
-  const prefs = Object.assign({ window: 'seven_day', horizon: 7, lookback: 24, order: 'expiring', theme: 'dark', emails: false, sort: 'default', tab: 'remaining' },
-    JSON.parse(localStorage.getItem(PREFS_STORE) || '{}'));
-  const savePrefs = () => localStorage.setItem(PREFS_STORE, JSON.stringify(prefs));
-  let data = null;
-  let model = null;
+  const icon = (name, cls = '') => `<svg class="i ${cls}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+
+  // ---------- Prefs ----------
+  const DEFAULTS = { window: null, horizon: 7, lookback: 24, order: 'expiring', theme: null, emails: false, sort: 'default', tab: 'remaining' };
+  const VALID = {
+    window: Object.keys(WINDOWS), horizon: [1, 3, 7, 14], lookback: LOOKBACKS, order: ['expiring', 'even'],
+    theme: ['dark', 'light'], emails: [true, false], sort: ['default', 'reset', 'remaining', 'least'], tab: ['remaining', 'drain'],
+  };
+  const NUMERIC = new Set(['horizon', 'lookback']);
+  let stored = {};
+  try { stored = JSON.parse(localStorage.getItem(PREFS_STORE) || '{}'); } catch { stored = {}; }
+  if (!stored || typeof stored !== 'object' || Array.isArray(stored)) stored = {};
+  const prefs = {};
+  for (const k of Object.keys(DEFAULTS)) {
+    let v = stored[k];
+    if (NUMERIC.has(k) && v !== undefined && v !== null) v = Number(v);
+    if (k === 'emails' && typeof v === 'string') v = v === 'true';
+    prefs[k] = VALID[k].includes(v) ? v : DEFAULTS[k];
+  }
+  if (!prefs.theme) prefs.theme = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  // Unknown keys in the stored object are kept; only keys the user sets are written.
+  // Until the user picks a range, 5-hour charts 1 day and the weekly windows 7 days.
+  let horizonSet = VALID.horizon.includes(Number(stored.horizon));
+  const horizonFor = (w) => (horizonSet ? prefs.horizon : w === 'five_hour' ? 1 : DEFAULTS.horizon);
+  function setPref(key, value) {
+    if (key === 'horizon') horizonSet = true;
+    prefs[key] = value;
+    stored[key] = value;
+    try { localStorage.setItem(PREFS_STORE, JSON.stringify(stored)); } catch {}
+  }
+
+  // ---------- State ----------
+  let data = null;          // last good payload
+  let P = null;             // prepared data
+  let dataVersion = 0;
+  let modelCache = new Map();
+  let lastOkAt = 0;
+  let loadError = null;     // { message, at }
+  let loading = false;
+  let busyAll = false;
+  const busyRows = new Set();
+  const rowErrors = new Map();
+  const openErrs = new Set();
+  let flash = null;         // { text, kind, until }
+  let windowChosen = false; // the user picked a window in this session
+  let autoWindow = null;    // first-visit pick, frozen for the session
+  let chartPoints = null;   // hover / keyboard state
+  let chartIndex = -1;
+  let liveTimer;            // screen-reader copy of the chart readout
 
   // ---------- API ----------
   async function api(path, opts = {}) {
     const key = localStorage.getItem(KEY_STORE) || '';
-    const res = await fetch('/v8/management' + path, {
-      ...opts,
-      headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json', ...(opts.headers || {}) },
-    });
-    if (res.status === 401 || res.status === 403) { const err = new Error('unauthorized'); err.auth = true; throw err; }
-    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || ('HTTP ' + res.status));
+    let res;
+    try {
+      res = await fetch('/v8/management' + path, {
+        ...opts,
+        headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json', ...(opts.headers || {}) },
+      });
+    } catch (err) {
+      throw new Error("can't reach the proxy (" + (err && err.message ? err.message : 'network error') + ')');
+    }
+    if (res.status === 401 || res.status === 403) { const err = new Error('HTTP ' + res.status); err.auth = true; err.status = res.status; throw err; }
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      const err = new Error(body.error ? body.error + ' (HTTP ' + res.status + ')' : 'HTTP ' + res.status);
+      err.status = res.status;
+      throw err;
+    }
     return res.json();
   }
 
+  function setData(d) {
+    data = d;
+    P = prepare(d);
+    dataVersion++;
+    modelCache = new Map();
+    lastOkAt = Date.now();
+    loadError = null;
+  }
+
+  // A payload is applied only when the server built it after the one shown (same server time: sent later).
+  // Parallel row refreshes answer in any order, so send order alone would drop newer data.
+  // Sign-out bumps epoch, which drops every response still in flight.
+  let reqSeq = 0, appliedSeq = 0, epoch = 0;
+  const newer = (d, seq) => { const t = parseT(d.now); return !P || (t === P.now ? seq > appliedSeq : t > P.now || isNaN(t)); };
   async function load() {
+    const seq = ++reqSeq, e = epoch;
+    loading = true;
+    if (!$('app').hidden) renderStatus();
     try {
-      data = await api('/quota/history');
+      const d = await api('/quota/history');
+      if (e !== epoch || !newer(d, seq)) return;
+      appliedSeq = seq;
+      setData(d);
+      loading = false;
       showApp();
       render();
     } catch (err) {
-      if (err.auth) return showLogin(localStorage.getItem(KEY_STORE) ? 'Key rejected' : '');
-      $('cred-count').textContent = 'Error: ' + err.message;
-    }
-  }
-
-  async function refresh(authIndex, button) {
-    if (button) button.disabled = true;
-    try {
-      data = await api('/quota/history/refresh', { method: 'POST', body: JSON.stringify(authIndex ? { auth_index: authIndex } : {}) });
+      if (e !== epoch || seq < appliedSeq) return;
+      loading = false;
+      if (err.auth) return showLogin(localStorage.getItem(KEY_STORE) ? rejectMessage(err) : '');
+      loadError = { message: err.message, at: Date.now() };
+      if (!$('login').hidden) { setLoginError("Couldn't load quota history: " + err.message + '.'); return; }
+      showApp();
       render();
-    } catch (err) {
-      if (err.auth) return showLogin('Key rejected');
-      alert('Refresh failed: ' + err.message);
-    } finally {
-      if (button) button.disabled = false;
     }
   }
 
-  async function resetCooldown(authIndex, button) {
-    button.disabled = true;
+  async function refresh(authIndex) {
+    if (authIndex ? busyRows.has(authIndex) || busyAll : busyAll) return;
+    if (authIndex) { busyRows.add(authIndex); rowErrors.delete(authIndex); } else busyAll = true;
+    renderBusy();
+    renderStatus();
+    const seq = ++reqSeq, e = epoch;
+    try {
+      const d = await api('/quota/history/refresh', { method: 'POST', body: JSON.stringify(authIndex ? { auth_index: authIndex } : {}) });
+      if (e !== epoch) return;
+      if (newer(d, seq)) { appliedSeq = seq; setData(d); }
+      if (authIndex) {
+        const c = data.credentials.find((x) => x.auth_index === authIndex);
+        setFlash('Refreshed ' + (c ? displayName(c) : 'credential') + ' at ' + fmtClock(Date.now()), 'ok', 8000);
+      } else {
+        rowErrors.clear();
+        const n = data.credentials.filter((c) => !c.disabled).length;
+        setFlash('Refreshed ' + plural(n, 'credential') + ' at ' + fmtClock(Date.now()), 'ok', 8000);
+      }
+    } catch (err) {
+      if (e !== epoch) return;
+      if (authIndex) busyRows.delete(authIndex); else busyAll = false;
+      if (err.auth) return showLogin(rejectMessage(err));
+      if (authIndex) rowErrors.set(authIndex, 'Refresh failed: ' + err.message);
+      else setFlash('Refresh failed: ' + err.message, 'bad', 15000);
+    }
+    if (authIndex) busyRows.delete(authIndex); else busyAll = false;
+    if (!$('app').hidden) render();
+  }
+
+  async function resetCooldown(authIndex) {
+    if (busyRows.has(authIndex)) return;
+    busyRows.add(authIndex);
+    rowErrors.delete(authIndex);
+    renderBusy();
+    const e = epoch;
     try {
       await api('/routing/cooldown/reset', { method: 'POST', body: JSON.stringify({ auth_index: authIndex }) });
+      if (e !== epoch) return;
+      busyRows.delete(authIndex);
+      const c = data && data.credentials.find((x) => x.auth_index === authIndex);
+      setFlash('Cleared the cooldown on ' + (c ? displayName(c) : 'credential'), 'ok', 8000);
       await load();
     } catch (err) {
-      alert('Reset failed: ' + err.message);
-      button.disabled = false;
+      if (e !== epoch) return;
+      busyRows.delete(authIndex);
+      if (err.auth) return showLogin(rejectMessage(err));
+      rowErrors.set(authIndex, "Couldn't clear the cooldown: " + err.message);
+      render();
     }
   }
 
+  function setFlash(text, kind, ms) {
+    flash = { text, kind, until: Date.now() + ms };
+    setTimeout(() => { if (data && !$('app').hidden) renderStatus(); }, ms + 50);
+  }
+
+  const rejectMessage = (err) => 'That key was rejected (' + (err.status || 401) + '). Check the key and try again.';
+
+  function setLoginError(message) {
+    const el = $('login-error');
+    el.innerHTML = message ? icon('alert') + '<span>' + esc(message) + '</span>' : '';
+    $('key-input').setAttribute('aria-invalid', message ? 'true' : 'false');
+  }
   function showLogin(message) {
+    // Drop responses still in flight and clear the hidden dashboard, so no names stay in the page.
+    epoch++;
+    data = P = loadError = flash = null;
+    modelCache = new Map();
+    loading = busyAll = false;
+    busyRows.clear();
+    rowErrors.clear();
+    render();
     $('app').hidden = true;
     $('login').hidden = false;
-    $('login-error').textContent = message || '';
+    setLoginBusy(false);
+    setLoginError(message || '');
     $('key-input').focus();
   }
   function showApp() { $('login').hidden = true; $('app').hidden = false; }
+  function setLoginBusy(on) {
+    const b = $('login-submit');
+    b.setAttribute('aria-disabled', on ? 'true' : 'false');
+    b.textContent = on ? 'Checking…' : 'Continue';
+  }
 
   // ---------- Model ----------
   const clampPct = (v) => Math.max(0, Math.min(100, v));
+  const parseT = (s) => (s ? Date.parse(s) : NaN);
   const remainingOf = (win, at) => {
     if (!win) return null;
-    const reset = win.resets_at ? Date.parse(win.resets_at) : NaN;
+    const reset = parseT(win.resets_at);
     if (!isNaN(reset) && reset <= at) return 100;
-    return clampPct(100 - win.percent);
+    const p = Number(win.percent);
+    return clampPct(100 - (isFinite(p) ? p : 0));
   };
+  const usageOf = (c, w) => (c && c.status && c.status.usage ? c.status.usage[w] || null : null);
 
-  function buildModel() {
-    const now = Date.parse(data.now);
-    const w = prefs.window;
+  function prepare(d) {
+    const creds = Array.isArray(d.credentials) ? d.credentials : [];
+    const samples = (Array.isArray(d.samples) ? d.samples : []).map((s) => ({ s, t: parseT(s.t) })).filter((x) => !isNaN(x.t)).sort((a, b) => a.t - b.t);
+    const now = isNaN(parseT(d.now)) ? Date.now() : parseT(d.now);
+    const active = creds.filter((c) => !c.disabled);
+    const statusWin = WIN_ORDER.filter((w) => active.some((c) => usageOf(c, w)));
+    const columnWin = WIN_ORDER.filter((w) => creds.some((c) => usageOf(c, w)));
+    const sampleWin = WIN_ORDER.filter((w) => samples.some((x) => x.s[w]));
+    const anyWin = WIN_ORDER.filter((w) => statusWin.includes(w) || sampleWin.includes(w));
+    const newest = samples.length ? samples[samples.length - 1].t : null;
+    const interval = (Number(d.interval_seconds) || 600) * 1000;
+    const byId = new Map();
+    for (const x of samples) { if (!byId.has(x.s.id)) byId.set(x.s.id, []); byId.get(x.s.id).push(x); }
+    return { creds, samples, byId, now, statusWin, columnWin, anyWin, newest, interval, ...identities(creds) };
+  }
+
+  function model(w) {
+    const key = [dataVersion, w, prefs.lookback, horizonFor(w), prefs.order].join('|');
+    if (!modelCache.has(key)) modelCache.set(key, buildModel(w));
+    return modelCache.get(key);
+  }
+
+  function buildModel(w) {
+    const now = P.now;
     const period = WINDOWS[w].period;
-    const active = data.credentials.filter((c) => !c.disabled);
+    const active = P.creds.filter((c) => !c.disabled);
     const activeIds = new Set(active.map((c) => c.id));
 
-    // Current pool state.
+    // Current pool: active credentials that report this window now.
     const pool = [];
     for (const c of active) {
-      const win = c.status && c.status.usage ? c.status.usage[w] : null;
+      const win = usageOf(c, w);
       if (!win) continue;
-      const reset = win.resets_at ? Date.parse(win.resets_at) : NaN;
-      pool.push({ id: c.id, rem: remainingOf(win, now), reset: isNaN(reset) ? null : (reset <= now ? reset + period * Math.ceil((now - reset) / period) : reset) });
+      const reset = parseT(win.resets_at);
+      pool.push({ c, rem: remainingOf(win, now), assumed: isAssumed(credState(c), win, now), reset: isNaN(reset) ? null : (reset <= now ? reset + period * Math.ceil((now - reset) / period) : reset) });
     }
     const capacity = pool.length * 100;
     const remaining = pool.reduce((s, p) => s + p.rem, 0);
+    const notReporting = active.length - pool.length;
 
-    // History: total remaining after each sampling round, carrying values forward per credential.
-    const samples = data.samples.filter((s) => activeIds.has(s.id) && s[w]).sort((a, b) => Date.parse(a.t) - Date.parse(b.t));
+    // History: pool total after each sampling round, carrying each credential's last value forward.
+    // A credential whose sample stops carrying this window leaves the sum, as it has left the current pool.
     const last = new Map();
     const history = [];
     const consumption = [];
-    for (const s of samples) {
-      const t = Date.parse(s.t);
-      const rem = remainingOf(s[w], t);
-      const prev = last.get(s.id);
-      if (prev && rem < prev.rem && sameWindow(prev.win, s[w])) consumption.push({ t, amount: prev.rem - rem });
-      last.set(s.id, { rem, win: s[w] });
-      const total = [...last.values()].reduce((sum, v) => sum + v.rem, 0);
+    let total = 0, firstT = null, count = 0;
+    const push = (t) => {
       const point = { t, v: total, cap: last.size * 100 };
       if (history.length && t - history[history.length - 1].t < 120e3) history[history.length - 1] = point;
       else history.push(point);
+    };
+    for (const { s, t } of P.samples) {
+      if (!activeIds.has(s.id)) continue;
+      const win = s[w];
+      const prev = last.get(s.id);
+      if (!win) {
+        if (prev) { total -= prev.rem; last.delete(s.id); push(t); }
+        continue;
+      }
+      count++;
+      if (firstT === null) firstT = t;
+      const rem = remainingOf(win, t);
+      if (prev && rem < prev.rem && sameWindow(prev.win, win)) consumption.push({ t, amount: prev.rem - rem, id: s.id });
+      total += rem - (prev ? prev.rem : 0);
+      last.set(s.id, { rem, win });
+      push(t);
     }
     if (pool.length) history.push({ t: now, v: remaining, cap: capacity });
 
-    // Drain rate over the lookback window, scaled to the span of data actually available.
-    const lookbackStart = now - prefs.lookback * HOUR;
-    const firstT = samples.length ? Date.parse(samples[0].t) : now;
-    const spanHours = Math.max(1, (now - Math.max(lookbackStart, firstT)) / HOUR);
-    const used = consumption.filter((c) => c.t >= lookbackStart).reduce((s, c) => s + c.amount, 0);
-    const rate = samples.length > 1 ? used / spanHours : 0;
+    // Drain rate over each lookback, scaled to the span of data actually available.
+    const rateFor = (hours) => {
+      const start = now - hours * HOUR;
+      const spanHours = Math.max(1, (now - Math.max(start, firstT === null ? now : firstT)) / HOUR);
+      let used = 0;
+      for (const c of consumption) if (c.t >= start) used += c.amount;
+      return count > 1 ? used / spanHours : 0;
+    };
+    const rates = {};
+    for (const h of LOOKBACKS) rates[h] = rateFor(h);
+    const rate = rates[prefs.lookback];
+    // Use inside the chosen lookback by credentials that are no longer in the pool (they still count in the rate).
+    const poolIds = new Set(pool.map((p) => p.c.id));
+    const leftIds = new Set();
+    for (const c of consumption) if (c.t >= now - prefs.lookback * HOUR && !poolIds.has(c.id)) leftIds.add(c.id);
+    const span = firstT === null ? 0 : now - firstT;
+    const forecastable = pool.length > 0 && span >= HOUR;
 
-    // Projection: drain the pool at the current rate and restore credentials at each reset.
-    const projection = [];
-    const resets = [];
-    let runout = null;
-    const sim = pool.map((p) => ({ ...p }));
-    const end = now + prefs.horizon * 24 * HOUR;
-    const step = Math.min(10 * 60e3, period / 30);
-    for (let t = now; t <= end; t += step) {
-      for (const p of sim) {
-        while (p.reset !== null && p.reset <= t) {
-          const gain = 100 - p.rem;
-          if (gain > 0.5) resets.push({ t: p.reset, gain });
-          p.rem = 100;
-          p.reset += period;
-        }
+    const end = now + horizonFor(w) * DAY;
+    const sim = simulate(pool, rate, period, now, end, prefs.order);
+    // The fastest measured rate, when it runs out and the chosen one does not, or runs out much sooner.
+    // It backs the amber "could run out" verdict and the warning line in a red one.
+    let fast = null;
+    if (forecastable) {
+      let hiH = null;
+      for (const h of LOOKBACKS) if (rates[h] > rate + 0.05 && (hiH === null || rates[h] > rates[hiH])) hiH = h;
+      if (hiH !== null) {
+        const fs = simulate(pool, rates[hiH], period, now, end, prefs.order);
+        if (fs.runout !== null && (sim.runout === null || fs.runout < sim.runout - Math.max(HOUR, (sim.runout - now) / 4))) fast = { runout: fs.runout, lookback: hiH };
       }
-      if (t > now) drain(sim, rate * step / HOUR);
-      const total = sim.reduce((s, p) => s + p.rem, 0);
-      if (runout === null && total < 0.5 && rate > 0 && sim.length) runout = t;
-      projection.push({ t, v: total, cap: capacity });
     }
-    const nextReset = groupResets(resets)[0] || null;
-    return { now, w, capacity, remaining, history, projection, consumption, rate, nextReset, runout, poolSize: pool.length };
+
+    // A green forecast must not rest on assumed resets alone: run the pool again without them.
+    let unsure = null;
+    const assumed = pool.filter((p) => p.assumed);
+    if (forecastable && assumed.length && sim.runout === null && !fast) {
+      const rest = pool.filter((p) => !p.assumed);
+      // With every member assumed there is nothing measured to forecast from (runout stays null).
+      const runout = rest.length ? simulate(rest, rate, period, now, end, prefs.order).runout : null;
+      if (runout !== null || !rest.length) unsure = { runout, members: assumed };
+    }
+
+    // Next reset from the credentials' own reset times, independent of the horizon. One at 100% gains nothing.
+    const upcoming = pool.filter((p) => p.reset !== null && p.reset > now && p.rem < 99.5).sort((a, b) => a.reset - b.reset);
+    let nextReset = null;
+    if (upcoming.length) {
+      const t = upcoming[0].reset;
+      // The step the forecast draws at this reset, so tile, chart and table agree; current state without a forecast.
+      const gains = forecastable && t <= end ? sim.gains.filter((g) => g.t >= t && g.t - t < 60e3) : upcoming.filter((p) => p.reset - t < 60e3).map((p) => ({ v: 100 - p.rem }));
+      nextReset = { t, adds: gains.reduce((sum, g) => sum + g.v, 0) / capacity * 100 };
+    }
+    return {
+      w, now, period, capacity, remaining, share: capacity ? remaining / capacity * 100 : null,
+      poolSize: pool.length, pool, notReporting, history, consumption, rate, rates, span, forecastable, leftCount: leftIds.size,
+      projection: sim.points, runout: sim.runout, fast, unsure, nextReset, count,
+    };
+  }
+
+  function simulate(pool, rate, period, now, end, order) {
+    const sim = pool.map((p) => ({ rem: p.rem, reset: p.reset }));
+    const step = Math.min(10 * MIN, period / 30);
+    const points = [], gains = [];
+    let runout = null;
+    for (let t = now; t <= end; t += step) {
+      // rs: the latest reset inside this step, so an empty stretch ends at the reset, not the step after it.
+      let rs = null;
+      for (const p of sim) {
+        while (p.reset !== null && p.reset <= t) { gains.push({ t: p.reset, v: 100 - p.rem }); p.rem = 100; rs = Math.max(rs ?? 0, p.reset); p.reset += period; }
+      }
+      if (t > now) drain(sim, rate * step / HOUR, order);
+      let total = 0;
+      for (const p of sim) total += p.rem;
+      if (runout === null && total < 0.5 && rate > 0 && sim.length) runout = t;
+      points.push({ t, v: total, rs });
+    }
+    return { points, runout, gains };
   }
 
   function sameWindow(a, b) {
     if (!a.resets_at || !b.resets_at) return true;
-    return Math.abs(Date.parse(a.resets_at) - Date.parse(b.resets_at)) < 30 * 60e3;
+    return Math.abs(parseT(a.resets_at) - parseT(b.resets_at)) < 30 * 60e3;
   }
 
-  function drain(sim, amount) {
-    if (prefs.order === 'even') {
+  function drain(sim, amount, order) {
+    if (order === 'even') {
       let left = amount;
       for (let pass = 0; pass < 4 && left > 1e-9; pass++) {
         const live = sim.filter((p) => p.rem > 0);
@@ -357,8 +1042,8 @@
       }
       return;
     }
-    const order = sim.filter((p) => p.rem > 0).sort((a, b) => (a.reset ?? Infinity) - (b.reset ?? Infinity));
-    for (const p of order) {
+    const queue = sim.filter((p) => p.rem > 0).sort((a, b) => (a.reset ?? Infinity) - (b.reset ?? Infinity));
+    for (const p of queue) {
       if (amount <= 0) return;
       const take = Math.min(p.rem, amount);
       p.rem -= take;
@@ -366,293 +1051,1265 @@
     }
   }
 
-  function groupResets(resets) {
-    const out = [];
-    for (const r of resets.sort((a, b) => a.t - b.t)) {
-      const prev = out[out.length - 1];
-      if (prev && r.t - prev.t < 60e3) prev.gain += r.gain; else out.push({ ...r });
-    }
-    return out;
+  // Which window to show: the user's choice, else the window that runs out first.
+  function currentWindow() {
+    if (!P) return prefs.window || 'fable';
+    const has = (w) => P.statusWin.includes(w) || P.anyWin.includes(w);
+    if (prefs.window && (windowChosen || has(prefs.window) || !P.anyWin.length)) return prefs.window;
+    if (!autoWindow || !has(autoWindow)) autoWindow = pickWindow();
+    return autoWindow || prefs.window || 'fable';
   }
+  function pickWindow() {
+    const cands = P.statusWin.length ? P.statusWin : P.anyWin;
+    if (!cands.length) return FALLBACK_ORDER[0];
+    const ms = cands.map((w) => model(w));
+    const running = ms.filter((m) => m.forecastable && m.runout !== null).sort((a, b) => a.runout - b.runout);
+    if (running.length) return running[0].w;
+    const withShare = ms.filter((m) => m.share !== null).sort((a, b) => a.share - b.share);
+    if (withShare.length) return withShare[0].w;
+    return FALLBACK_ORDER.find((w) => cands.includes(w)) || cands[0];
+  }
+
+  // ---------- Credential state ----------
+  function credState(c) {
+    const now = P.now;
+    const st = c.status || {};
+    const usage = st.usage || {};
+    const fetched = parseT(st.fetched_at);
+    const cool = parseT(c.cooldown_until);
+    const hasUsage = Object.keys(usage).some((k) => usage[k]);
+    const age = isNaN(fetched) ? null : now - fetched;
+    return {
+      disabled: !!c.disabled,
+      cooldown: !isNaN(cool) && cool > now ? { left: cool - now, until: cool } : null,
+      never: isNaN(fetched) && !hasUsage,
+      error: st.error ? { text: String(st.error), headers: /headers/.test(String(st.source || '')) } : null,
+      stale: age !== null && age > 3 * P.interval ? age : null,
+      fetched: isNaN(fetched) ? null : fetched,
+      source: st.source || '',
+    };
+  }
+  const isMuted = (s) => s.disabled || (s.error && !s.error.headers && s.stale);
+  // A window whose reset passed while the usage fetch fails: its 100% is assumed, not measured.
+  const isAssumed = (s, win, at) => !!(s.error && !s.error.headers && win && parseT(win.resets_at) <= at);
 
   // ---------- Formatting ----------
   const pct = (v) => Math.round(v) + '%';
-  const fmtTime = (t) => new Date(t).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' });
-  const fmtDate = (t) => new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-  function fmtIn(ms) {
-    const abs = Math.abs(ms);
-    const m = Math.round(abs / 60e3);
-    let s;
-    if (m < 60) s = m + 'm';
-    else if (m < 48 * 60) s = Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
-    else s = Math.round(m / 1440) + ' days';
-    return ms >= 0 ? 'in ' + s : s + ' ago';
+  const fmtPct1 = (r) => (r > 0 && r < 0.05 ? 'less than 0.1' : r >= 10 ? Math.round(r) : r.toFixed(1)) + '%';
+  // Rates are per account (sum of each credential's % used per hour); readers get them as pool share.
+  const poolRate = (m, r = m.rate) => (m.poolSize ? r / m.poolSize : 0);
+  const fmtRate = (m, r) => fmtPct1(poolRate(m, r)) + ' of the pool per hour';
+  // Time phrases use no-break spaces so "10:52 AM", "Sun 2:20 AM" and "in 5d 16h" never split.
+  const NB = '\u00a0';
+  const nb = (t) => String(t).replace(/[ \u202f]/g, NB);
+  const fmtClock = (t) => nb(new Date(t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }));
+  const fmtDateTime = (t) => nb(new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }));
+  function fmtDur(ms) {
+    const m = Math.floor(Math.abs(ms) / MIN);
+    if (m < 1) return 'under' + NB + '1m';
+    if (m < 60) return m + 'm';
+    const h = Math.floor(m / 60), mm = m % 60;
+    if (h < 24) return mm ? h + 'h' + NB + mm + 'm' : h + 'h';
+    const d = Math.floor(h / 24), hh = h % 24;
+    return hh ? d + 'd' + NB + hh + 'h' : d + 'd';
   }
+  const startOfDay = (t) => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
+  // "today 11:28 AM", "tomorrow 1:30 AM", "Tue 1:30 AM", "Nov 3, 9:00 AM". short drops "today".
+  function fmtWhen(t, short) {
+    const now = P ? P.now : Date.now();
+    const days = Math.round((startOfDay(t) - startOfDay(now)) / DAY);
+    const time = fmtClock(t);
+    if (days === 0) return short ? time : 'today' + NB + time;
+    if (days === 1) return 'tomorrow' + NB + time;
+    if (days === -1) return 'yesterday' + NB + time;
+    if (days > 1 && days < 7) return new Date(t).toLocaleDateString(undefined, { weekday: 'short' }) + NB + time;
+    return fmtDateTime(t);
+  }
+  const fmtAccounts = (units) => (units >= 10 ? Math.round(units) : (Math.round(units * 10) / 10).toFixed(1).replace(/\.0$/, ''));
+  const plural = (n, one, many) => n + ' ' + (n === 1 ? one : (many || one + 's'));
+  const horizonText = (d) => (d === 1 ? '24 hours' : d + ' days');
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
   function maskEmail(email) {
     if (!email) return '';
     if (prefs.emails) return email;
-    const [user, domain] = email.split('@');
-    return (user || '').slice(0, 2) + '***' + (domain ? '@' + domain : '');
+    return (P && P.masks.get(email)) || mask(email);
   }
-  function maskName(name, email) {
-    if (prefs.emails || !email) return name;
-    return name.split(email).join(maskEmail(email));
+  const mask = (email, more) => {
+    const [user = '', domain] = String(email).split('@');
+    return user.slice(0, 2) + '***' + (more && user.length > 4 ? user.slice(-2) : '') + (domain ? '@' + domain : '');
+  };
+  // Masked names must tell credentials apart. When two masks match, they show the last 2 letters too.
+  // The row code is the name's hex, or the start of auth_index when name and hex both repeat. Rows show it
+  // only when masked names match; otherwise it tells nothing apart (live, five credentials share one hex).
+  // Names that still match (the same email twice) carry their code wherever they appear alone.
+  function identities(creds) {
+    const emails = [...new Set(creds.map((c) => c.email).filter(Boolean))];
+    const masks = new Map(emails.map((e) => [e, mask(e, emails.some((o) => o !== e && mask(o) === mask(e)))]));
+    const label = (c) => (c.email ? masks.get(c.email) : c.name || c.id || '');
+    const count = (f) => { const n = new Map(); for (const c of creds) n.set(f(c), (n.get(f(c)) || 0) + 1); return n; };
+    const labels = count(label), pairs = count((c) => label(c) + ' ' + hexId(c));
+    const codes = new Map(creds.map((c) => [c, pairs.get(label(c) + ' ' + hexId(c)) > 1 || !hexId(c) ? String(c.auth_index || '').slice(0, 8) : hexId(c)]));
+    return { masks, codes, dups: new Set(creds.filter((c) => labels.get(label(c)) > 1)) };
+  }
+  function maskText(text) {
+    let out = String(text ?? '');
+    if (prefs.emails || !P) return out;
+    for (const c of P.creds) if (c.email) out = out.split(c.email).join(maskEmail(c.email));
+    return out;
+  }
+  const displayName = (c) => (c.email ? maskEmail(c.email) : maskText(c.name || c.id || 'credential'));
+  const shortName = (c) => (c.email ? maskEmail(c.email).split('@')[0] : maskText(c.name || '')) + (P.dups.has(c) ? ' ' + P.codes.get(c) : '');
+  function hexId(c) {
+    const m = String(c.name || '').match(/^claude-([0-9a-f]{6,})-/i);
+    return m ? m[1] : '';
+  }
+  // Usage error -> [': HTTP 401', 'OAuth token has expired']
+  function errParts(text) {
+    const code = (text.match(/status (\d{3})/) || [])[1];
+    const msg = (text.match(/"message"\s*:\s*"([^"]+)"/) || [])[1];
+    return [code ? ':' + NB + 'HTTP' + NB + code : ' request failed', String(msg || text).replace(/[.\s]+$/, '')];
   }
 
   // ---------- Render ----------
-  function render() {
-    model = buildModel();
-    const total = data.credentials.length;
-    const loaded = data.credentials.filter((c) => c.status && c.status.fetched_at).length;
-    $('cred-count').innerHTML = '| ' + total + ' credentials &middot; <b>' + loaded + ' loaded</b>';
-    $('remaining-pct').textContent = model.poolSize ? pct(model.remaining) : '-';
-    $('capacity-pct').textContent = model.poolSize ? '/ ' + pct(model.capacity) + ' remaining' : 'no ' + WINDOWS[model.w].label + ' data yet';
-    $('drain-rate').textContent = model.rate > 0 ? '~' + model.rate.toFixed(1) + '% per hour' : '';
-    $('next-reset').textContent = model.nextReset ? 'Next reset +' + pct(model.nextReset.gain) + ' · ' + fmtTime(model.nextReset.t) : '';
-    $('runout').textContent = model.rate <= 0 ? '' : model.runout
-      ? 'At this rate the pool runs dry ' + fmtTime(model.runout) + ' (' + fmtIn(model.runout - model.now) + ')'
-      : 'At this rate the pool lasts past the forecast horizon';
-    $('emails-btn').textContent = prefs.emails ? 'Hide emails' : 'Show emails';
-    $('group-meta').textContent = data.credentials.length + ' credentials · ' + WINDOWS[model.w].label + ' ' + pct(model.remaining) + ' / ' + pct(model.capacity);
-    document.querySelectorAll('.tab').forEach((el) => el.classList.toggle('on', el.dataset.tab === prefs.tab));
-    $('legend').innerHTML = prefs.tab === 'remaining'
-      ? '<span class="legend-dot"></span>Remaining &nbsp; <span class="legend-dash"></span>Projected'
-      : '<span class="legend-dot"></span>Quota used per hour (% of one credential)';
-    renderChart();
-    renderTable();
-    renderList();
+  function captureFocus() {
+    const a = document.activeElement;
+    if (!a || a === document.body || !$('app').contains(a)) return null;
+    if (a.dataset.refresh) return { sel: `[data-refresh="${CSS.escape(a.dataset.refresh)}"]` };
+    if (a.dataset.reset) return { sel: `[data-reset="${CSS.escape(a.dataset.reset)}"]`, alt: `[data-refresh="${CSS.escape(a.dataset.reset)}"]` };
+    if (a.dataset.window) return { sel: `[data-window="${CSS.escape(a.dataset.window)}"]` };
+    if (a.dataset.pick) return { sel: `[data-pick="${a.dataset.pick}"]`, alt: '#window-select' };
+    if (a.dataset.fetch) return { sel: '[data-fetch]', alt: '#refresh-all-btn' };
+    if (a.dataset.goto) return { sel: `[data-goto="${CSS.escape(a.dataset.goto)}"]` };
+    // A control gone after it worked hands focus on: a tile action to its first row, Retry to Refresh all.
+    if (a.dataset.act) return { sel: `[data-act="${a.dataset.act}"][data-ids="${CSS.escape(a.dataset.ids)}"]`, alt: `[data-refresh="${CSS.escape(a.dataset.ids.split(' ')[0])}"]` };
+    if (a.id) return { sel: '#' + CSS.escape(a.id), alt: '#refresh-all-btn' };
+    if (a.matches('summary')) return { sel: `#${CSS.escape(a.closest('tr').id)} summary` };
+    return null;
+  }
+  function restoreFocus(f) {
+    if (!f) return;
+    const a = document.activeElement;
+    if (a && a !== document.body && a.isConnected) return;
+    const el = document.querySelector(f.sel) || (f.alt && document.querySelector(f.alt));
+    if (el) el.focus({ preventScroll: true });
   }
 
+  function render() {
+    const focus = captureFocus();
+    applyChrome();
+    renderStatus();
+    if (!data) {
+      renderShell();
+      restoreFocus(focus);
+      return;
+    }
+    renderNotice();
+    renderTiles();
+    renderChart();
+    renderDataTable();
+    renderList();
+    restoreFocus(focus);
+  }
+
+  function applyChrome() {
+    const light = prefs.theme === 'light';
+    document.documentElement.classList.toggle('light', light);
+    const tb = $('theme-btn');
+    const tl = light ? 'Switch to dark theme' : 'Switch to light theme';
+    tb.setAttribute('aria-label', tl); tb.title = tl;
+    tb.innerHTML = icon(light ? 'moon' : 'sun');
+    const eb = $('emails-btn');
+    eb.setAttribute('aria-pressed', String(prefs.emails));
+    eb.innerHTML = icon(prefs.emails ? 'eye-off' : 'eye') + '<span class="lbl">' + (prefs.emails ? 'Hide emails' : 'Show emails') + '</span>';
+    eb.title = prefs.emails ? 'Hide full email addresses' : 'Show full email addresses';
+    document.querySelectorAll('[data-tab]').forEach((el) => {
+      const on = el.dataset.tab === prefs.tab;
+      el.classList.toggle('on', on);
+      el.setAttribute('aria-pressed', String(on));
+    });
+    const w = currentWindow();
+    const ws = $('window-select');
+    for (const o of ws.options) {
+      const has = !P || P.anyWin.includes(o.value);
+      o.textContent = WINDOWS[o.value].label + (has ? '' : ' (no data)');
+    }
+    ws.value = w;
+    $('horizon-select').value = String(horizonFor(w));
+    $('lookback-select').value = String(prefs.lookback);
+    $('order-select').value = prefs.order;
+    $('sort-select').value = prefs.sort;
+    $('settings-help').textContent = prefs.order === 'even'
+      ? 'Spread evenly drains every credential at the same pace. The drain rate is the average use over the chosen period.'
+      : 'Soonest reset first uses up the credential that resets next, so less quota expires unused. The drain rate is the average use over the chosen period.';
+    renderBusy();
+  }
+
+  function renderBusy() {
+    const ra = $('refresh-all-btn');
+    ra.classList.toggle('busy', busyAll);
+    ra.setAttribute('aria-disabled', String(busyAll));
+    ra.querySelector('span').textContent = busyAll ? 'Refreshing…' : 'Refresh all';
+    document.querySelectorAll('[data-refresh]').forEach((b) => {
+      const busy = busyAll || busyRows.has(b.dataset.refresh);
+      b.classList.toggle('busy', busy);
+      b.setAttribute('aria-disabled', String(busy));
+    });
+    document.querySelectorAll('[data-reset]').forEach((b) => {
+      const busy = busyRows.has(b.dataset.reset);
+      b.setAttribute('aria-disabled', String(busy));
+      b.textContent = busy ? 'Clearing…' : 'Clear cooldown';
+    });
+    document.querySelectorAll('[data-act="reset"], [data-act="retry"]').forEach((b) => {
+      const busy = b.dataset.ids.split(' ').some((id) => busyRows.has(id)) || (busyAll && b.dataset.act === 'retry');
+      b.classList.toggle('busy', busy);
+      b.setAttribute('aria-disabled', String(busy));
+    });
+    const list = $('cred-list');
+    if (busyAll) list.setAttribute('aria-busy', 'true'); else list.removeAttribute('aria-busy');
+  }
+
+  let statusHtml = null;
+  // Writes #status only when it changes, so the live region does not repeat itself on every reload.
+  function renderStatus() {
+    const el = $('status');
+    const set = (cls, html) => {
+      if (cls + html === statusHtml) return;
+      statusHtml = cls + html;
+      el.className = 'status' + cls;
+      el.innerHTML = html;
+    };
+    if (flash && flash.until < Date.now()) flash = null;
+    if (loading && !data) return set('', icon('refresh', 'spin on') + 'Loading quota history…');
+    if (busyAll) return set('', icon('refresh', 'spin on') + 'Refreshing every credential…');
+    if (loadError) {
+      return set(data ? ' warn' : ' bad', data
+        ? icon('alert') + '<span>Update failed at ' + esc(fmtClock(loadError.at)) + ': ' + esc(loadError.message) + '. Showing data from ' + esc(fmtClock(lastOkAt)) + ', retrying every minute.</span>' +
+          '<button class="btn" type="button" id="retry-btn">Retry now</button>'
+        : icon('alert') + '<span>Not loaded. Retrying every minute.</span>');
+    }
+    if (!data) return set('', '');
+    if (flash) return set(flash.kind === 'bad' ? ' bad' : '', icon(flash.kind === 'bad' ? 'alert' : 'check') + '<span>' + esc(flash.text) + '</span>');
+    const parts = ['Updated ' + fmtClock(lastOkAt)];
+    let cls = '';
+    if (P.newest) {
+      const age = Date.now() - lastOkAt + (P.now - P.newest);
+      if (age > 3 * P.interval) cls += ' warn';
+      parts.push('newest sample ' + (age < MIN ? 'just now' : fmtDur(age) + ' ago'));
+    } else {
+      cls += ' idle';
+      if (P.creds.length) parts.push('no samples yet');
+    }
+    let meta = '';
+    if (P.creds.length) {
+      let need = 0, waiting = 0, off = 0;
+      for (const c of P.creds) {
+        const s = credState(c);
+        if (s.disabled) off++;
+        else if (s.cooldown || s.error || s.stale) need++;
+        else if (s.never) waiting++;
+      }
+      const bits = [esc(plural(P.creds.length, 'credential'))];
+      if (need) bits.push('<span class="att">' + need + (need === 1 ? ' needs' : ' need') + ' attention</span>');
+      if (waiting) bits.push(waiting + ' not sampled yet');
+      if (off) bits.push(off + ' disabled');
+      if (!need && !waiting && !off) bits.push('all working');
+      meta = '<span class="meta" aria-live="off">' + bits.join(' · ') + '</span>';
+    }
+    // The routine line is not announced; flashes and errors are.
+    set(cls, meta + '<span class="fresh" aria-live="off"><span class="dot" aria-hidden="true"></span><span>' + esc(parts.join(' · ')) + '</span></span>');
+  }
+
+  function renderShell() {
+    // Skeleton while the first load runs, or an error card if it failed.
+    const notice = $('notice');
+    if (loadError) {
+      notice.hidden = false;
+      notice.className = 'notice bad';
+      notice.setAttribute('role', 'alert');
+      const m = loadError.message;
+      notice.innerHTML = icon('plug', 'lg') + '<div><h2>Couldn\'t load quota history</h2><p>' + esc(m.charAt(0).toUpperCase() + m.slice(1)) +
+        '. The page tries again every minute.</p><div class="actions"><button class="btn" type="button" id="retry-btn2">' + icon('refresh') + 'Try again</button>' +
+        '<button class="btn ghost" type="button" id="change-key-btn">Change key</button></div></div>';
+    } else { notice.hidden = true; notice.innerHTML = ''; }
+    const sk = '<div class="tile" aria-hidden="true"><div class="skel" style="height:12px;width:40%"></div><div class="skel" style="height:28px;width:55%"></div>' +
+      '<div class="skel" style="height:6px"></div><div class="skel" style="height:12px;width:70%"></div></div>';
+    $('tiles').hidden = false;
+    $('tiles').innerHTML = loadError ? '' : sk + sk + sk;
+    $('legend').innerHTML = '';
+    $('chart-svg').innerHTML = '';
+    $('chart-svg').setAttribute('aria-label', loadError ? 'No data loaded' : 'Loading');
+    const msg = $('chart-msg');
+    msg.hidden = false;
+    msg.innerHTML = loadError ? '<p class="msg-title">No data to chart</p><p class="msg-body">The quota history did not load.</p>' : '<div class="skel" style="position:absolute;inset:0;opacity:.5"></div><p class="msg-body" style="position:relative">Loading quota history…</p>';
+    $('chart-caption').textContent = '';
+    $('data-table').innerHTML = '';
+    $('cred-head').innerHTML = '';
+    $('cred-head').closest('section').hidden = false;
+    $('cred-meta').textContent = '';
+    $('cred-list').innerHTML = loadError ? '' : [0, 1, 2].map(() => '<tr class="skel-row" aria-hidden="true"><td><div class="skel" style="height:36px"></div></td></tr>').join('');
+  }
+
+  function renderNotice() {
+    const notice = $('notice');
+    notice.removeAttribute('role');
+    const w = currentWindow();
+    if (prefs.window && prefs.window !== w && !windowChosen) {
+      notice.hidden = false;
+      notice.className = 'notice slim info';
+      notice.innerHTML = icon('info') + '<span>No credential reports a ' + esc(WINDOWS[prefs.window].label) + ' limit, so this view shows ' + esc(WINDOWS[w].label) + '.</span>';
+      return;
+    }
+    notice.hidden = true;
+    notice.innerHTML = '';
+  }
+
+  // ---------- Stat tiles ----------
+  function renderTiles() {
+    const el = $('tiles');
+    const w = currentWindow();
+    const wins = P.statusWin;
+    // Most urgent first: windows that run out (soonest first), then those that could run out at the
+    // fastest measured rate, then the rest by share left.
+    const rank = (m) => {
+      if (m.capacity && m.remaining < 0.5) return [0, m.now];
+      if (m.forecastable && m.runout !== null) return [0, m.runout];
+      const u = m.fast || m.unsure;
+      if (u && u.runout !== null) return [1, u.runout];
+      return [2, m.share === null ? Infinity : m.share];
+    };
+    const ms = wins.map((x) => model(x)).sort((a, b) => { const ra = rank(a), rb = rank(b); return ra[0] - rb[0] || ra[1] - rb[1]; });
+    if (!P.creds.length) { el.innerHTML = ''; el.hidden = true; return; }
+    el.hidden = false;
+    // With no usage data at all, the chart's message is the only one; the header counts the credentials.
+    const onlyWaiting = !wins.length && P.creds.every((c) => { const s = credState(c); return s.never && !s.disabled && !s.cooldown && !s.error; });
+    if (onlyWaiting) { el.innerHTML = ''; el.hidden = true; return; }
+    let html = ms.map((m, i) => windowTile(m, m.w === w, i === 0)).join('');
+    html += credsTile();
+    el.classList.toggle('n4', ms.length >= 3);
+    el.innerHTML = html;
+  }
+
+  // The tile's verdict: an icon, a headline and one detail line. Returns HTML; time phrases stay on one line.
+  function tileVerdict(m) {
+    const pace = (h) => 'the ' + nw(PACE[h] + ' pace');
+    if (m.capacity && m.remaining < 0.5) return { kind: 'bad', icon: 'stop', head: 'Empty now' };
+    if (!m.forecastable) {
+      return { kind: 'neutral', icon: 'info', head: 'No forecast yet', sub: m.count ? esc(fmtDur(m.span)) + ' of samples so far, needs 1' + NB + 'hour' : 'No samples yet' };
+    }
+    if (m.runout !== null) {
+      const head = 'Runs out ' + nw(fmtWhen(m.runout));
+      return { kind: 'bad', icon: 'stop', head,
+        sub: 'In ' + nw(fmtDur(m.runout - m.now)) + ' at ' + pace(prefs.lookback) + '.' + (m.fast ? ' Sooner at ' + pace(m.fast.lookback) + ': ' + nw(fmtWhen(m.fast.runout, true)) + '.' : '') };
+    }
+    if (m.fast) {
+      return { kind: 'warn', icon: 'alert', head: 'Lasts at ' + pace(prefs.lookback), sub: 'Could run out ' + nw(fmtWhen(m.fast.runout)) + ' at ' + pace(m.fast.lookback) };
+    }
+    if (m.unsure && m.unsure.runout === null) return { kind: 'neutral', icon: 'info', head: 'No forecast yet', sub: 'Not measured since the reset' };
+    if (m.unsure) {
+      const n = m.unsure.members.length, head = 'Could run out ' + nw(fmtWhen(m.unsure.runout));
+      return { kind: 'warn', icon: 'alert', head,
+        sub: 'Without ' + (n === 1 ? esc(shortName(m.unsure.members[0].c)) + ', whose reset is assumed' : n + ' credentials whose resets are assumed') };
+    }
+    // Another window that runs out inside this one's horizon is the real limit, so this one is not green.
+    const end = m.now + horizonFor(m.w) * DAY;
+    let first = null;
+    for (const x of P.statusWin) {
+      const o = model(x), t = o.capacity && o.remaining < 0.5 ? o.now : o.forecastable ? o.runout : null;
+      if (x !== m.w && t !== null && t < end && !(first && first.t <= t)) first = { t, label: WINDOWS[x].label };
+    }
+    if (first) {
+      return { kind: 'neutral', icon: 'info', head: 'Not the limit',
+        sub: esc(first.label) + (first.t <= m.now ? ' is empty now' : ' runs out first, ' + nw(fmtWhen(first.t))) };
+    }
+    const horizon = nw(horizonText(horizonFor(m.w)));
+    return { kind: 'good', icon: 'check', head: 'Lasts the next ' + horizon, short: 'Lasts ' + horizon,
+      sub: m.rate > 0 ? 'At ' + pace(prefs.lookback) + '.' : 'No use in the last ' + esc(LOOKBACK_LABEL[prefs.lookback]) };
+  }
+
+  function windowTile(m, selected, lead) {
+    const label = WINDOWS[m.w].label;
+    const share = m.share ?? 0;
+    const units = m.remaining / 100;
+    const v = tileVerdict(m);
+    const verdict = `<div class="verdict ${v.kind}">${icon(v.icon)}<div><p class="v-main">${v.head}</p>${v.sub ? `<p class="v-sub">${v.sub}</p>` : ''}</div></div>`;
+    let reset = '';
+    if (m.nextReset) {
+      const r = m.nextReset;
+      reset = `<div class="tile-sub">Next reset <b class="nw">in ${esc(fmtDur(r.t - m.now))}</b> <span class="nw">(${esc(fmtWhen(r.t))})</span> <span class="nw">adds about ${pct(r.adds)}</span></div>`;
+    }
+    // Cooling-down credentials count in the share but cannot take requests now. Assumed resets are named instead.
+    const assumedN = m.pool.filter((p) => p.assumed).length;
+    const held = m.pool.reduce((sum, p) => sum + (credState(p.c).cooldown ? p.rem : 0), 0);
+    const usable = fmtAccounts((m.remaining - held) / 100);
+    let extra = assumedN ? `, <span class="nw">includes ${plural(assumedN, 'assumed reset')}</span>` : m.capacity && held / m.capacity >= 0.25 ? `, <span class="nw">${usable === '0' ? 'not' : 'about ' + usable} usable now</span>` : '';
+    if (m.notReporting) extra += `, <span class="nw">${m.notReporting} not reporting</span>`;
+    // Same thresholds as the row meters, so a 5% pool reads as low at a glance.
+    const r = Math.round(share);
+    const level = !m.capacity ? '' : r === 0 ? 'empty' : share <= 10 ? 'bad' : share <= 25 ? 'warn' : '';
+    // Accessible name stays "Show <window> in chart"; aria-pressed says whether it is the charted window.
+    const btn = `<button type="button" class="tile-btn" data-window="${m.w}" aria-pressed="${selected}">${icon('chart')}<span class="bt">` +
+      (selected ? `<span class="sr-only">Show ${esc(label)} </span>In chart` : `Show <span class="sr-only">${esc(label)} </span>in chart`) + '</span></button>';
+    // One-line summary that replaces the body on phones for every tile but the most urgent one.
+    const brief = `<p class="tile-brief"><b>${pct(share)}</b> left · <span class="vk ${v.kind}">${icon(v.icon)}${v.short || v.head}</span></p>`;
+    return `<div class="tile pick${selected ? ' sel' : ''}${lead ? ' lead' : ''}">
+      <div class="tile-head"><h3>${esc(label)}</h3>${brief}${btn}</div>
+      <div class="tile-value"><span class="big">${pct(share)}</span><span class="unit">of pool left</span></div>
+      <div class="poolbar${level ? ' ' + level : ''}" role="meter" aria-label="${esc(label)} pool left" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${r}"><i style="width:${clampPct(share).toFixed(1)}%"></i></div>
+      <div><div class="tile-sub">About <b class="nw">${fmtAccounts(units)} of ${plural(m.poolSize, 'account')}</b>${extra}</div>${reset}</div>
+      ${verdict}
+    </div>`;
+  }
+
+  // Credentials tile: one line per problem, worst first. Over four problems, lines group by state.
+  function credsTile() {
+    const creds = P.creds;
+    const probs = [];
+    for (const c of creds) {
+      const s = credState(c);
+      if (s.disabled) { probs.push({ kind: 'disabled', c, s }); continue; }
+      if (s.cooldown) probs.push({ kind: 'cooldown', c, s });
+      if (s.error) probs.push({ kind: 'error', c, s });
+      else if (s.stale) probs.push({ kind: 'stale', c, s });
+      if (s.never) probs.push({ kind: 'never', c, s });
+    }
+    const KINDS = {
+      cooldown: { tone: 'bad', icon: 'clock', group: 'Cooling down' },
+      error: { tone: 'warn', icon: 'alert', group: 'Fetch failing' },
+      stale: { tone: 'warn', icon: 'clock', group: 'No new samples' },
+      never: { tone: '', icon: 'dashed', group: 'Not sampled yet' },
+      disabled: { tone: '', icon: 'ban', group: 'Disabled' },
+    };
+    const order = Object.keys(KINDS);
+    probs.sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));
+    const go = (c) => `<button type="button" class="goto" data-goto="${esc(c.auth_index)}" title="Go to this credential's row">${esc(shortName(c))}</button>`;
+    const act = (kind, ids, label) => {
+      if (kind === 'disabled') return '';
+      const a = kind === 'cooldown' ? 'reset' : 'retry';
+      const title = a === 'reset' ? 'The proxy routes requests here again. The Anthropic limit does not change.' : 'Fetch usage now';
+      return ` <button type="button" class="p-act" data-act="${a}" data-ids="${esc(ids.join(' '))}" title="${title}">${label}</button>`;
+    };
+    const httpCode = (s) => { const m = /status (\d{3})/.exec(s.error.text); return m ? ' (HTTP ' + m[1] + ')' : ''; };
+    const what = (p) => {
+      const s = p.s;
+      if (p.kind === 'cooldown') return 'cooling down, back' + NB + 'in' + NB + nw(fmtDur(s.cooldown.left));
+      if (p.kind === 'error') return 'fetch failing' + esc(httpCode(s)) + (P.statusWin.some((x) => isAssumed(s, usageOf(p.c, x), P.now)) ? ', reset assumed' : s.stale ? ' for ' + nw(fmtDur(s.stale)) : '');
+      if (p.kind === 'stale') return 'no new sample for ' + nw(fmtDur(s.stale));
+      if (p.kind === 'never') return 'not sampled yet';
+      return 'disabled' + (s.fetched ? ', last data ' + nw(fmtDateTime(s.fetched)) : '');
+    };
+    const line = (kind, inner) => `<li class="prob ${KINDS[kind].tone}">${icon(KINDS[kind].icon)}<p>${inner}</p></li>`;
+    const verb = { cooldown: ['Clear cooldown', 'Clear all '], never: ['Fetch now', 'Fetch all '] };
+    const single = (p) => line(p.kind, `${go(p.c)} ${what(p)}${act(p.kind, [p.c.auth_index], (verb[p.kind] || ['Retry now'])[0])}`);
+    let lines = [];
+    if (probs.length > 4) {
+      for (const kind of order) {
+        const ps = probs.filter((p) => p.kind === kind);
+        if (!ps.length) continue;
+        if (ps.length === 1) { lines.push(single(ps[0])); continue; }
+        let tail = '';
+        if (kind === 'cooldown') tail = ', first back' + NB + 'in' + NB + nw(fmtDur(Math.min(...ps.map((p) => p.s.cooldown.left))));
+        const ids = ps.map((p) => p.c.auth_index);
+        const label = (verb[kind] || [0, 'Retry all '])[1] + ids.length;
+        lines.push(line(kind, `<b>${KINDS[kind].group} (${ps.length})</b>: ${ps.map((p) => go(p.c)).join(', ')}${tail}${act(kind, ids, label)}`));
+      }
+    } else {
+      lines = probs.map(single);
+    }
+    const inPool = creds.length - probs.filter((p) => p.kind === 'disabled').length;
+    // A failing usage fetch still serves requests, so only cooldowns cut the working count.
+    const working = inPool - probs.filter((p) => p.kind === 'cooldown').length;
+    let body;
+    if (!creds.length) body = '<div class="tile-sub">Add a Claude auth file to the proxy and it shows up here.</div>';
+    else if (!probs.length) body = `<p class="all-ok">${icon('check')}${creds.length === 1 ? 'Working, nothing needs attention' : 'All ' + creds.length + ' working, nothing needs attention'}</p>`;
+    else body = `<ul class="probs" aria-label="Problems">${lines.join('')}</ul>`;
+    return `<div class="tile creds-tile${probs.length ? '' : ' ok'}">
+      <div class="tile-head"><h3>Credentials</h3></div>
+      <div class="tile-value"><span class="big${creds.length ? '' : ' muted'}">${creds.length}</span><span class="unit">${!creds.length ? 'configured' : esc((inPool === creds.length ? 'in pool' : inPool + ' in pool') + (working < inPool ? ' · ' + working + ' working' : ''))}</span></div>
+      ${body}
+    </div>`;
+  }
+  const nw = (t) => `<span class="nw">${esc(t)}</span>`;
+
+
+  // ---------- Chart ----------
   function chartFrame() {
     const svg = $('chart-svg');
     const box = svg.getBoundingClientRect();
-    return { svg, W: Math.max(320, box.width), H: Math.max(180, box.height), m: { l: 44, r: 12, t: 14, b: 26 } };
+    const W = Math.max(200, Math.round(box.width || 600));
+    const H = Math.max(160, Math.round(box.height || 260));
+    const narrow = W < 520;
+    return { svg, W, H, narrow, m: { l: narrow ? 42 : 44, r: narrow ? 6 : 12, t: 28, b: 26 } };
   }
 
   function timeTicks(x0, x1, width) {
     const span = x1 - x0;
-    const steps = [HOUR, 3 * HOUR, 6 * HOUR, 12 * HOUR, 24 * HOUR, 48 * HOUR];
-    const stepMs = steps.find((s) => span / s <= Math.max(3, width / 90)) || 96 * HOUR;
+    const max = Math.max(4, Math.floor(width / 90));
     const ticks = [];
-    const start = new Date(x0); start.setMinutes(0, 0, 0);
-    if (stepMs >= 24 * HOUR) start.setHours(0);
-    for (let t = start.getTime(); t <= x1; t += stepMs) if (t >= x0) ticks.push(t);
-    const fmt = stepMs >= 24 * HOUR
-      ? (t) => new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-      : (t) => new Date(t).toLocaleTimeString(undefined, { hour: 'numeric' });
+    let fmt;
+    // Clock labels ("10:10 AM") are wider than day labels, and the edge ones are anchored inward, so space them wider.
+    const minStep = span <= 3 * HOUR ? [10, 15, 20, 30].find((n) => span / (n * MIN) <= Math.max(2, Math.floor(width / 120))) : null;
+    const hourStep = minStep ? null : [1, 2, 3, 6, 12].find((h) => span / (h * HOUR) <= max);
+    if (minStep) {
+      const d = new Date(x0); d.setSeconds(0, 0);
+      d.setMinutes(Math.ceil(d.getMinutes() / minStep) * minStep);
+      for (let guard = 0; d.getTime() <= x1 && guard < 400; guard++) {
+        ticks.push(d.getTime());
+        d.setMinutes(d.getMinutes() + minStep);
+      }
+      fmt = (t) => new Date(t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    } else if (hourStep) {
+      const d = new Date(x0); d.setMinutes(0, 0, 0);
+      d.setHours(Math.ceil(d.getHours() / hourStep) * hourStep);
+      for (let guard = 0; d.getTime() <= x1 && guard < 400; guard++) {
+        if (d.getTime() >= x0) ticks.push(d.getTime());
+        d.setHours(d.getHours() + hourStep);
+      }
+      fmt = (t) => { const x = new Date(t); return x.getHours() === 0 ? x.toLocaleDateString(undefined, { weekday: 'short' }) : x.toLocaleTimeString(undefined, { hour: 'numeric' }); };
+    } else {
+      const dayStep = [1, 2, 3, 4, 7].find((n) => span / (n * DAY) <= max) || 14;
+      const d = new Date(x0); d.setHours(0, 0, 0, 0);
+      if (d.getTime() < x0) d.setDate(d.getDate() + 1);
+      for (let guard = 0; d.getTime() <= x1 && guard < 400; guard++) {
+        ticks.push(d.getTime());
+        d.setDate(d.getDate() + dayStep);
+      }
+      fmt = (t) => new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    }
     return { ticks, fmt };
   }
 
+  // X tick labels: calendar-stepped, duplicate labels dropped, edge labels anchored inward.
+  function xAxis(x0, x1, sx, W, H, mg) {
+    const { ticks, fmt } = timeTicks(x0, x1, W - mg.l - mg.r);
+    let out = '', lastLabel = '';
+    for (const t of ticks) {
+      const lbl = fmt(t);
+      if (lbl === lastLabel) continue;
+      lastLabel = lbl;
+      const x = sx(t);
+      if (x < mg.l - 1 || x > W - mg.r + 1) continue;
+      const anchor = x < mg.l + 22 ? 'start' : x > W - mg.r - 22 ? 'end' : 'middle';
+      out += `<line x1="${x.toFixed(1)}" x2="${x.toFixed(1)}" y1="${H - mg.b}" y2="${H - mg.b + 4}" stroke="var(--line-2)" stroke-width="1"/>`;
+      out += `<text x="${x.toFixed(1)}" y="${H - mg.b + 20}" text-anchor="${anchor}" class="axis">${esc(lbl)}</text>`;
+    }
+    return out;
+  }
+
+  // Sizes a pill <rect> to the text it holds after the svg is in the DOM.
+  function fitPills(svg) {
+    const num = (el, a) => Number(el.getAttribute(a));
+    const fit = (r) => {
+      const t = svg.querySelector('#' + r.dataset.pill);
+      if (!t) return;
+      let w = 0;
+      try { w = t.getComputedTextLength(); } catch {}
+      if (!w) return;
+      const pad = 8, min = Number(r.dataset.min || 0), max = Number(r.dataset.max || 1e9);
+      const cx = Number(r.dataset.cx || t.getAttribute('x'));
+      const width = w + pad * 2;
+      let left = Math.max(min, cx - width / 2);
+      left = Math.max(Number(r.dataset.floor || 0), Math.min(max - width, left));
+      r.setAttribute('x', left.toFixed(1));
+      r.setAttribute('width', width.toFixed(1));
+      t.setAttribute('x', (left + width / 2).toFixed(1));
+    };
+    svg.querySelectorAll('[data-pill]').forEach(fit);
+    // The Now pill stays on its line. An Empty chip that would cover it shortens, then moves to a second row.
+    const now = svg.querySelector('.now-pill'), outp = svg.querySelector('.out-pill'), near = svg.querySelector('#pool-near');
+    if (!now) return;
+    const left = num(now, 'x'), right = left + num(now, 'width');
+    if (outp) {
+      const t = svg.querySelector('#out-txt');
+      if (num(outp, 'x') < right + 4 && t.dataset.short) { t.textContent = t.dataset.short; fit(outp); }
+      if (num(outp, 'x') < right + 4) { outp.setAttribute('y', '26'); t.setAttribute('y', '40'); }
+    }
+    // A pool-size change by Now keeps its label on its tick, else right of the Now pill if there is room, else only the tick.
+    const own = near ? num(near, 'x') : 0, onTick = near && own + near.getComputedTextLength() / 2 + 4 <= left;
+    if (near && !onTick) {
+      const lim = Math.min(Number(now.dataset.max), outp && num(outp, 'y') < 20 ? num(outp, 'x') - 4 : 1e9);
+      if (right + 4 + near.getComputedTextLength() <= lim) { near.setAttribute('x', (right + 4).toFixed(1)); near.setAttribute('text-anchor', 'start'); }
+      else near.remove();
+    }
+    svg.querySelectorAll('.pt').forEach((t) => { if (t !== near && (num(t, 'x') > left - 10 || (onTick && own - num(t, 'x') < 28))) t.remove(); });
+  }
+
+  function emptyReason(m, w) {
+    const label = WINDOWS[w].label;
+    if (!P.creds.length) return { title: 'No Claude credentials yet', body: 'Add a Claude auth file to the proxy. Its quota shows up here after the next sample, within ' + Math.round(P.interval / MIN) + ' minutes.', icon: 'users' };
+    if (!P.samples.length && !P.statusWin.length) return { title: 'No samples yet', body: `The proxy checks usage every ${Math.round(P.interval / MIN)} minutes. Fetch now to see it sooner.`, icon: 'chart', fetch: true };
+    if (!m.poolSize && !m.history.length) {
+      const others = P.anyWin.filter((x) => x !== w);
+      return {
+        title: `No credential reports a ${label} limit`,
+        body: others.length ? `These credentials report ${others.map((x) => WINDOWS[x].label).join(' and ')} limits.` : 'Nothing has been sampled for this window.',
+        icon: 'chart', picks: others,
+      };
+    }
+    return null;
+  }
+
+  function showChartMsg(r) {
+    const msg = $('chart-msg');
+    msg.hidden = false;
+    const picks = (r.picks || []).map((x) => `<button type="button" class="btn sm" data-pick="${x}">Show ${esc(WINDOWS[x].label)}</button>`).join('');
+    const fetch = r.fetch ? '<button type="button" class="btn sm" data-fetch="1">' + icon('refresh', 'sm') + 'Fetch now</button>' : '';
+    msg.innerHTML = icon(r.icon || 'chart', 'lg') + `<p class="msg-title">${esc(r.title)}</p><p class="msg-body">${esc(r.body)}</p>` +
+      (picks || fetch ? `<div class="actions">${picks}${fetch}</div>` : '');
+  }
+
   function renderChart() {
-    const { svg, W, H, m } = chartFrame();
+    // A keyboard reader keeps their place across the 60 s reload: the nearest point at the same time.
+    const keep = chartIndex >= 0 && document.activeElement === $('chart-svg') ? chartPoints.pts[chartIndex].t : null;
+    hideTip();
+    chartPoints = null;
+    chartIndex = -1;
+    const w = currentWindow();
+    const m = model(w);
+    const empty = emptyReason(m, w);
+    // Measure the frame at its full height; an empty-state message gets a shorter box.
+    $('chart').classList.remove('is-empty');
+    const f = chartFrame();
+    const { svg, W, H } = f;
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
-    const tip = $('tooltip');
-    tip.style.display = 'none';
-    if (!model.poolSize && !model.history.length) {
-      svg.innerHTML = `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" class="axis">No ${WINDOWS[model.w].label} usage recorded yet. Samples are taken every ${Math.round(data.interval_seconds / 60)} minutes.</text>`;
-      svg.onmousemove = svg.onmouseleave = null;
+    const msg = $('chart-msg');
+    if (empty) {
+      svg.innerHTML = '';
+      svg.setAttribute('aria-label', empty.title);
+      showChartMsg(empty);
+      $('chart').classList.add('is-empty');
+      $('legend').innerHTML = '';
+      $('chart-caption').textContent = '';
       return;
     }
-    const histStart = model.history.length ? model.history[0].t : model.now;
-    const x0 = Math.max(histStart, model.now - prefs.horizon * 24 * HOUR);
-    const x1 = prefs.tab === 'remaining' ? model.now + prefs.horizon * 24 * HOUR : model.now;
-    const x0Safe = Math.min(x0, x1 - HOUR);
-    const sx = (t) => m.l + (t - x0Safe) / (x1 - x0Safe) * (W - m.l - m.r);
-    const { ticks, fmt } = timeTicks(x0Safe, x1, W);
+    msg.hidden = true;
+    msg.innerHTML = '';
+    renderRates(m, w);
+    if (prefs.tab === 'drain') renderDrain(f, m, w);
+    else renderRemaining(f, m, w);
+    if (keep !== null) showPoint(nearestIndex(keep));
+  }
+
+  // Forecast settings: the four measured rates as pool share, the one in use in bold, then per account.
+  function renderRates(m, w) {
+    const el = $('settings-rates');
+    if (!m.capacity) { el.textContent = ''; return; }
+    if (!m.forecastable) { el.textContent = `Measured ${WINDOWS[w].label} rates appear after 1 hour of data.`; return; }
+    const short = { 6: '6 h', 24: '24 h', 72: '3 d', 168: '7 d' };
+    const list = (f, mark) => LOOKBACKS.map((h) => { const txt = short[h] + ' ' + fmtPct1(f(m.rates[h])); return mark && h === prefs.lookback ? `<strong>${esc(txt)} (in use)</strong>` : esc(txt); }).join(' · ');
+    el.innerHTML = `Measured ${esc(WINDOWS[w].label)} rates, share of the pool per hour: ${list((r) => poolRate(m, r), true)}.` +
+      `<br><span class="sec">Per account, share of one account's limit per hour: ${list((r) => r)}.` +
+      (m.leftCount ? ` The rate counts use by ${plural(m.leftCount, 'credential')} no longer in the pool.` : '') + '</span>';
+  }
+
+  function renderRemaining(f, m, w) {
+    const { svg, W, H } = f;
+    const mg = { ...f.m };
+    const label = WINDOWS[w].label;
+    const horizon = horizonFor(w) * DAY;
+    const histStart = m.history.length ? m.history[0].t : m.now;
+    const showForecast = m.forecastable && m.capacity > 0;
+    let x0, x1;
+    if (showForecast) { x0 = Math.min(Math.max(histStart, m.now - horizon), m.now - HOUR); x1 = m.now + horizon; }
+    else if (m.capacity) {
+      // Under an hour of samples: zoom to them, with the same width on the right for the "forecast after" note.
+      const half = Math.max(20 * MIN, (m.now - histStart) * 1.15);
+      x0 = m.now - half; x1 = m.now + half;
+    } else { x0 = Math.min(histStart, m.now - HOUR); x1 = m.now + HOUR; }
+    const pw = W - mg.l - mg.r;
+    const sx = (t) => mg.l + (t - x0) / (x1 - x0) * pw;
+    const shareOf = (p) => (p.cap ? p.v / p.cap * 100 : 0);
+    const f1 = (n) => n.toFixed(1);
+
+    // History: carry the point just before x0 so the step line starts at the left edge.
+    let startIdx = m.history.findIndex((p) => p.t >= x0);
+    if (startIdx === -1) startIdx = m.history.length;
+    const hist = m.history.slice(Math.max(0, startIdx - 1)).map((p) => ({ ...p, t: Math.max(p.t, x0), s: shareOf(p) }));
+
+    // Forecast at the chosen rate.
+    const proj = showForecast ? m.projection.map((p) => ({ t: p.t, s: p.v / m.capacity * 100, v: p.v, rs: p.rs })) : [];
+
+    // Empty stretches of the main forecast.
+    const empties = [];
+    let eStart = null;
+    for (const p of proj) {
+      if (p.v < 0.5) { if (eStart === null) eStart = p.t; }
+      else if (eStart !== null) { empties.push([eStart, p.rs ?? p.t]); eStart = null; }
+    }
+    if (eStart !== null) empties.push([eStart, x1]);
+
+    const ph = H - mg.t - mg.b;
+    const sy = (v) => mg.t + ph - (clampPct(v) / 100) * ph;
     let out = '';
 
-    if (prefs.tab === 'remaining') {
-      const cap = Math.max(100, model.capacity, ...model.history.map((p) => p.cap));
-      const sy = (v) => H - m.b - (v / cap) * (H - m.t - m.b);
-      for (let i = 0; i <= 4; i++) {
-        const v = cap * i / 4; const y = sy(v);
-        out += `<line x1="${m.l}" x2="${W - m.r}" y1="${y}" y2="${y}" stroke="var(--grid)" stroke-width="1"/>`;
-        out += `<text x="${m.l - 8}" y="${y + 4}" text-anchor="end" class="axis">${Math.round(v)}%</text>`;
-      }
-      const hist = model.history.filter((p) => p.t >= x0Safe);
-      const stepPath = (pts) => pts.map((p, i) => (i ? `L${sx(p.t)},${sy(pts[i - 1].v)} L` : 'M') + `${sx(p.t)},${sy(p.v)}`).join(' ');
-      if (hist.length) {
-        const line = stepPath(hist);
-        out += `<defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--accent-fill-top)"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>`;
-        out += `<path d="${line} L${sx(hist[hist.length - 1].t)},${sy(0)} L${sx(hist[0].t)},${sy(0)} Z" fill="url(#fill)"/>`;
-        out += `<path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>`;
-      }
-      if (model.projection.length) {
-        const proj = model.projection.map((p, i) => `${i ? 'L' : 'M'}${sx(p.t)},${sy(p.v)}`).join(' ');
-        out += `<path d="${proj}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-dasharray="5 4" opacity=".75"/>`;
-      }
-      out += nowMarker(sx(model.now), m, H);
-      out += `<circle cx="${sx(model.now)}" cy="${sy(model.remaining)}" r="4" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/>`;
-      out += ticks.map((t) => `<text x="${sx(t)}" y="${H - 8}" text-anchor="middle" class="axis">${fmt(t)}</text>`).join('');
-      out += `<line id="cross" y1="${m.t}" y2="${H - m.b}" stroke="var(--ink-3)" stroke-width="1" visibility="hidden"/><circle id="cross-dot" r="4" fill="var(--accent)" stroke="var(--surface)" stroke-width="2" visibility="hidden"/>`;
-      svg.innerHTML = out;
-
-      const series = [...hist.map((p) => ({ ...p, kind: 'Remaining' })), ...model.projection.slice(1).map((p) => ({ ...p, kind: 'Projected' }))];
-      svg.onmousemove = (e) => {
-        const r = svg.getBoundingClientRect();
-        const t = x0Safe + ((e.clientX - r.left) * W / r.width - m.l) / (W - m.l - m.r) * (x1 - x0Safe);
-        let best = null;
-        for (const p of series) if (!best || Math.abs(p.t - t) < Math.abs(best.t - t)) best = p;
-        if (!best) return;
-        const cx = sx(best.t), cy = sy(best.v);
-        const cross = $('cross'), dot = $('cross-dot');
-        cross.setAttribute('x1', cx); cross.setAttribute('x2', cx); cross.setAttribute('visibility', 'visible');
-        dot.setAttribute('cx', cx); dot.setAttribute('cy', cy); dot.setAttribute('visibility', 'visible');
-        tip.innerHTML = `<div class="t">${esc(best.kind)} &middot; ${esc(fmtDate(best.t))}</div><div class="v">${pct(best.v)} / ${pct(best.cap)}</div>`;
-        showTip(tip, cx * r.width / W, cy * r.height / H, r.width);
-      };
-    } else {
-      const bucket = (x1 - x0Safe) > 72 * HOUR ? 6 * HOUR : (x1 - x0Safe) > 24 * HOUR ? 3 * HOUR : HOUR;
-      const bins = new Map();
-      for (const c of model.consumption) {
-        if (c.t < x0Safe) continue;
-        const k = Math.floor(c.t / bucket) * bucket;
-        bins.set(k, (bins.get(k) || 0) + c.amount);
-      }
-      const bars = [...bins.entries()].map(([t, v]) => ({ t, v: v / (bucket / HOUR) })).sort((a, b) => a.t - b.t);
-      const maxV = Math.max(5, model.rate, ...bars.map((b) => b.v));
-      const tickStep = [0.5, 1, 2, 2.5, 5, 10, 20, 25, 50, 100].find((s) => s * 4 >= maxV) || Math.ceil(maxV / 400) * 100;
-      const niceMax = tickStep * 4;
-      const sy = (v) => H - m.b - (v / niceMax) * (H - m.t - m.b);
-      for (let i = 0; i <= 4; i++) {
-        const v = niceMax * i / 4; const y = sy(v);
-        out += `<line x1="${m.l}" x2="${W - m.r}" y1="${y}" y2="${y}" stroke="var(--grid)" stroke-width="1"/>`;
-        out += `<text x="${m.l - 8}" y="${y + 4}" text-anchor="end" class="axis">${+v.toFixed(1)}%</text>`;
-      }
-      const bw = Math.max(2, sx(x0Safe + bucket) - sx(x0Safe) - 2);
-      for (const b of bars) {
-        const left = Math.max(m.l, sx(b.t) + 1), right = Math.min(W - m.r, sx(b.t) + 1 + bw);
-        const x = left, y = sy(b.v), h = Math.max(0, sy(0) - y), width = right - left;
-        if (width <= 0) continue;
-        const rr = Math.min(4, width / 2, h);
-        out += `<path d="M${x},${sy(0)} V${y + rr} Q${x},${y} ${x + rr},${y} H${x + width - rr} Q${x + width},${y} ${x + width},${y + rr} V${sy(0)} Z" fill="var(--accent)"/>`;
-      }
-      if (model.rate > 0) {
-        const y = sy(model.rate);
-        out += `<line x1="${m.l}" x2="${W - m.r}" y1="${y}" y2="${y}" stroke="var(--ink-2)" stroke-width="1" stroke-dasharray="4 4"/>`;
-        out += `<text x="${W - m.r}" y="${y - 5}" text-anchor="end" class="axis">avg ${model.rate.toFixed(1)}%/h</text>`;
-      }
-      out += ticks.map((t) => `<text x="${sx(t)}" y="${H - 8}" text-anchor="middle" class="axis">${fmt(t)}</text>`).join('');
-      svg.innerHTML = out || '';
-      svg.onmousemove = (e) => {
-        const r = svg.getBoundingClientRect();
-        const t = x0Safe + ((e.clientX - r.left) * W / r.width - m.l) / (W - m.l - m.r) * (x1 - x0Safe);
-        const k = Math.floor(t / bucket) * bucket;
-        const v = (bins.get(k) || 0) / (bucket / HOUR);
-        tip.innerHTML = `<div class="t">${esc(fmtDate(k))} &ndash; ${esc(new Date(k + bucket).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }))}</div><div class="v">${v.toFixed(1)}% per hour</div>`;
-        showTip(tip, (sx(k) + bw / 2) * r.width / W, sy(v) * r.height / H, r.width);
-      };
+    // Grid and y labels (share of pool).
+    const yTicks = f.narrow ? [0, 50, 100] : [0, 25, 50, 75, 100];
+    for (const v of yTicks) {
+      const y = sy(v);
+      out += `<line x1="${mg.l}" x2="${W - mg.r}" y1="${y}" y2="${y}" stroke="var(--grid)" stroke-width="1"/>`;
+      out += `<text x="${mg.l - 8}" y="${y + 4}" text-anchor="end" class="axis">${v}%</text>`;
     }
-    svg.onmouseleave = () => {
-      tip.style.display = 'none';
+
+    const stepPath = (pts) => pts.map((p, i) => (i ? `L${f1(sx(p.t))},${f1(sy(pts[i - 1].s))} L` : 'M') + `${f1(sx(p.t))},${f1(sy(p.s))}`).join(' ');
+    // An assumed reset was never recorded, so the step into Now is dotted.
+    const assumedN = m.pool.filter((p) => p.assumed).length;
+    const cut = assumedN && hist.length > 1 && hist[hist.length - 1].t === m.now ? hist.length - 1 : hist.length;
+    if (hist.length) {
+      const line = stepPath(hist.slice(0, cut));
+      out += `<defs><linearGradient id="hist-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--series)" stop-opacity=".16"/><stop offset="1" stop-color="var(--series)" stop-opacity="0"/></linearGradient></defs>`;
+      out += `<path d="${line} L${f1(sx(hist[hist.length - 1].t))},${sy(0)} L${f1(sx(hist[0].t))},${sy(0)} Z" fill="url(#hist-fill)"/>`;
+      out += `<path d="${line}" fill="none" stroke="var(--series)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+      if (cut < hist.length) out += `<path d="${stepPath(hist.slice(cut - 1))}" fill="none" stroke="var(--series)" stroke-width="2" stroke-dasharray="0 4" stroke-linecap="round"/>`;
+    }
+    const nx = sx(m.now);
+    if (proj.length) {
+      out += `<path d="${proj.map((p, i) => `${i ? 'L' : 'M'}${f1(sx(p.t))},${f1(sy(p.s))}`).join(' ')}" fill="none" stroke="var(--series)" stroke-width="2" stroke-dasharray="5 4" stroke-linejoin="round"/>`;
+    } else if (m.capacity) {
+      const left = Math.max(0, HOUR - m.span);
+      const lines = f.narrow ? ['Forecast after', '1 hour of data,', fmtDur(left) + ' to go'] : ['Forecast after 1 hour of data', fmtDur(left) + ' to go'];
+      const cy = mg.t + ph / 2 - (lines.length - 1) * 8;
+      out += `<text x="${f1((nx + W - mg.r) / 2)}" y="${f1(cy)}" text-anchor="middle" class="axis-lbl">` +
+        lines.map((t, i) => `<tspan x="${f1((nx + W - mg.r) / 2)}" dy="${i ? 16 : 0}">${esc(t)}</tspan>`).join('') + '</text>';
+    }
+
+    // Empty stretches: a solid critical segment on the baseline.
+    for (const [a, b] of empties) {
+      const xa = sx(a), xb = Math.min(W - mg.r, sx(b));
+      if (xa > W - mg.r) continue;
+      out += `<line x1="${f1(xa)}" x2="${f1(Math.max(xa + 1, xb))}" y1="${sy(0)}" y2="${sy(0)}" stroke="var(--bad)" stroke-width="3" stroke-linecap="round"/>`;
+    }
+
+    // Pool size changes: a tick at each change's own time, "+1" or "-1" where labels fit; the tooltip has the detail.
+    const signed = (d) => (d > 0 ? '+' + d : '\u2212' + -d);
+    const changes = [];
+    for (let i = 1; i < hist.length; i++) {
+      const d = Math.round((hist[i].cap - hist[i - 1].cap) / 100);
+      if (d) changes.push({ d, x: sx(hist[i].t) });
+    }
+    let lastLbl = -Infinity;
+    changes.forEach((c, i) => {
+      const near = i === changes.length - 1 && nx - c.x < 52;
+      out += `<line x1="${f1(c.x)}" x2="${f1(c.x)}" y1="${mg.t - 6}" y2="${mg.t}" stroke="var(--ink-3)" stroke-width="1"/>`;
+      // On phones a label by Now is dropped (the tick stays; the Now readout says how the pool changed).
+      if (near ? !f.narrow : c.x - lastLbl >= 28) out += `<text${near ? ' id="pool-near"' : ''} x="${f1(lastLbl = c.x)}" y="${mg.t - 10}" text-anchor="middle" class="axis pt">${signed(c.d)}</text>`;
+    });
+
+    // Now marker with a pill label above the plot.
+    out += `<line x1="${f1(nx)}" x2="${f1(nx)}" y1="22" y2="${H - mg.b}" stroke="var(--ink-3)" stroke-width="1" stroke-dasharray="3 3"/>`;
+    out += `<rect class="now-pill" data-pill="now-txt" data-min="${mg.l}" data-max="${W - mg.r}" x="${f1(nx - 18)}" y="2" width="36" height="20" rx="4"/><text id="now-txt" class="now-txt" x="${f1(nx)}" y="16" text-anchor="middle">Now</text>`;
+
+    // First empty stretch: dashed line from a chip above the plot down to the baseline.
+    const firstEmpty = empties.length && sx(empties[0][0]) <= W - mg.r ? empties[0][0] : null;
+    if (firstEmpty !== null) {
+      const rx = sx(firstEmpty);
+      if (rx - nx > 2) out += `<line x1="${f1(rx)}" x2="${f1(rx)}" y1="22" y2="${sy(0)}" stroke="var(--bad)" stroke-width="1" stroke-dasharray="3 3"/>`;
+      const txt = firstEmpty <= m.now ? 'Empty now' : 'Empty ' + fmtWhen(firstEmpty, true);
+      // Shorter text for a crowded strip: the day without the time ("Empty Sun").
+      const days = Math.round((startOfDay(firstEmpty) - startOfDay(m.now)) / DAY);
+      const short = days > 0 ? 'Empty ' + new Date(firstEmpty).toLocaleDateString(undefined, days < 7 ? { weekday: 'short' } : { month: 'short', day: 'numeric' }) : '';
+      out += `<rect class="out-pill" data-pill="out-txt" data-cx="${f1(rx)}" data-min="${f1(nx + 26)}" data-floor="${mg.l}" data-max="${W - mg.r}" x="${f1(rx - 60)}" y="2" width="120" height="20" rx="4"/><text id="out-txt" class="out-txt" x="${f1(rx)}" y="16" text-anchor="middle"${short ? ` data-short="${esc(short)}"` : ''}>${esc(txt)}</text>`;
+    }
+    if (m.capacity) out += `<circle cx="${f1(nx)}" cy="${sy(m.share)}" r="4.5" fill="var(--series)" stroke="var(--surface)" stroke-width="2"/>`;
+
+    out += xAxis(x0, x1, sx, W, H, mg);
+
+    out += `<line id="cross" y1="${mg.t}" y2="${H - mg.b}" stroke="var(--ink-2)" stroke-width="1" visibility="hidden"/>`;
+    out += `<circle id="cross-dot" r="4.5" fill="var(--series)" stroke="var(--surface)" stroke-width="2" visibility="hidden"/>`;
+    svg.innerHTML = out;
+    fitPills(svg);
+
+    // Hover / keyboard points.
+    const pts = hist.map((p, i) => ({ t: p.t, s: p.s, units: p.v / 100, cap: p.cap / 100, from: i && hist[i - 1].cap !== p.cap ? hist[i - 1].cap / 100 : null, kind: p.t === m.now ? 'Now' : 'Recorded', assumed: p.t === m.now ? assumedN : 0 }))
+      .filter((p) => p.t >= x0);
+    for (const p of proj.slice(1)) pts.push({ t: p.t, s: p.s, units: p.v / 100, cap: m.capacity / 100, kind: 'Forecast' });
+    chartPoints = { kind: 'remaining', pts, sx, sy, W, H, mg, x0, x1 };
+
+    // Legend, caption and accessible summary.
+    const keys = ['<span class="key"><i class="k-line"></i>Recorded</span>'];
+    if (proj.length) keys.push('<span class="key"><i class="k-dash"></i>Forecast</span>');
+    if (firstEmpty !== null) keys.push('<span class="key"><i class="k-empty"></i>Empty</span>');
+    $('legend').innerHTML = keys.join('');
+    const order = prefs.order === 'even' ? 'spread evenly' : 'soonest reset first';
+    $('chart-caption').textContent = 'Share of the pool left.' + (proj.length ? ` Forecast at ${fmtRate(m)} (last ${LOOKBACK_LABEL[prefs.lookback]}), ${order}.` : '');
+    const verdict = !showForecast ? 'No forecast yet.' : m.runout !== null ? `Forecast runs out ${fmtWhen(m.runout)}.` : `Forecast lasts the next ${horizonText(horizonFor(w))}.`;
+    svg.setAttribute('aria-label', `${label} pool: ${m.capacity ? pct(m.share) + ' left now' : 'no current data'}. ${verdict} Use the arrow keys to read values.`);
+  }
+
+  function drainBuckets(m) {
+    const x1 = m.now;
+    const histStart = m.history.length ? m.history[0].t : m.now;
+    const x0 = Math.min(Math.max(histStart, m.now - horizonFor(m.w) * DAY), m.now - HOUR);
+    const span = x1 - x0;
+    const bh = span > 72 * HOUR ? 6 : span > 24 * HOUR ? 3 : 1;
+    const keyOf = (t) => { const d = new Date(t); d.setMinutes(0, 0, 0); d.setHours(Math.floor(d.getHours() / bh) * bh); return d.getTime(); };
+    const sums = new Map();
+    for (const c of m.consumption) {
+      if (c.t < x0) continue;
+      const k = keyOf(c.t);
+      sums.set(k, (sums.get(k) || 0) + c.amount);
+    }
+    const buckets = [];
+    const d = new Date(keyOf(x0));
+    for (let guard = 0; d.getTime() < x1 && guard < 2000; guard++) {
+      const k = d.getTime();
+      d.setHours(d.getHours() + bh);
+      const end = d.getTime();
+      const partial = end > x1;
+      const hours = Math.max(0.25, (Math.min(end, x1) - k) / HOUR);
+      // Share of the current pool, like the forecast rate.
+      buckets.push({ k, end, partial, hours, v: (sums.get(k) || 0) / (m.poolSize || 1) / hours });
+    }
+    return { x0, x1, bh, buckets };
+  }
+
+  function renderDrain(f, m, w) {
+    const { svg, W, H, m: mg } = f;
+    const label = WINDOWS[w].label;
+    const { x0, x1, bh, buckets } = drainBuckets(m);
+    const pw = W - mg.l - mg.r, ph = H - mg.t - mg.b;
+    const sx = (t) => mg.l + (t - x0) / (x1 - x0) * pw;
+    const rate = poolRate(m);
+    // The in-progress bar (paler) does not set the scale; when taller it is cut flat at the top and labelled.
+    const maxV = Math.max(0.4, rate, ...buckets.filter((b) => !b.partial).map((b) => b.v));
+    const tickStep = [0.1, 0.2, 0.5, 1, 2, 2.5, 5, 10, 20, 25].find((s) => s * 4 >= maxV) || Math.ceil(maxV / 400) * 100;
+    const niceMax = tickStep * 4;
+    const sy = (v) => mg.t + ph - (v / niceMax) * ph;
+    let out = '';
+    for (let i = 0; i <= 4; i++) {
+      if (f.narrow && i % 2) continue;
+      const v = tickStep * i, y = sy(v);
+      out += `<line x1="${mg.l}" x2="${W - mg.r}" y1="${y}" y2="${y}" stroke="var(--grid)" stroke-width="1"/>`;
+      out += `<text x="${mg.l - 8}" y="${y + 4}" text-anchor="end" class="axis">${+v.toFixed(1)}%</text>`;
+    }
+    const any = buckets.some((b) => b.v > 0);
+    for (const b of buckets) {
+      if (b.v <= 0) continue;
+      const left = Math.max(mg.l, sx(b.k)), right = Math.min(W - mg.r, sx(b.end));
+      const slot = right - left;
+      if (slot <= 0) continue;
+      const bw = Math.max(1, Math.min(24, slot - 2));
+      const clip = b.v > niceMax, x = left + (slot - bw) / 2, y = Math.max(sy(b.v), mg.t), h = Math.max(1, sy(0) - y);
+      const rr = clip ? 0 : Math.min(4, bw / 2, h);
+      out += `<path d="M${x.toFixed(1)},${sy(0)} V${(y + rr).toFixed(1)} Q${x.toFixed(1)},${y.toFixed(1)} ${(x + rr).toFixed(1)},${y.toFixed(1)} H${(x + bw - rr).toFixed(1)} Q${(x + bw).toFixed(1)},${y.toFixed(1)} ${(x + bw).toFixed(1)},${(y + rr).toFixed(1)} V${sy(0)} Z" fill="var(--series-bar)"${b.partial ? ' fill-opacity=".45"' : ''}/>`;
+      if (clip) out += `<text x="${(x - 4).toFixed(1)}" y="${mg.t + 12}" text-anchor="end" class="axis" stroke="var(--surface)" stroke-width="3" paint-order="stroke">${fmtPct1(b.v)}/h so far</text>`;
+    }
+    if (rate > 0) out += `<line x1="${mg.l}" x2="${W - mg.r}" y1="${sy(rate)}" y2="${sy(rate)}" stroke="var(--ink-2)" stroke-width="1" stroke-dasharray="4 4"/>`;
+    out += xAxis(x0, x1, sx, W, H, mg);
+    out += `<rect id="hover-bar" y="${mg.t}" height="${ph}" fill="var(--ink)" fill-opacity=".06" visibility="hidden"/>`;
+    svg.innerHTML = out;
+    chartPoints = { kind: 'drain', pts: buckets.map((b) => ({ ...b, t: (b.k + Math.min(b.end, x1)) / 2 })), sx, sy, W, H, mg, x0, x1 };
+
+    const msg = $('chart-msg');
+    if (!any) {
+      msg.hidden = false;
+      msg.innerHTML = `<p class="msg-body">No ${esc(label)} usage recorded in the last ${esc(horizonText(horizonFor(w)))}.</p>`;
+    }
+    $('legend').innerHTML = '<span class="key"><i class="k-bar"></i>Used per hour</span>' + (rate > 0 ? `<span class="key"><i class="k-ref"></i>Forecast rate ${esc(fmtPct1(rate))} per hour</span>` : '');
+    $('chart-caption').textContent = `Share of the ${m.poolSize ? 'current ' + m.poolSize + '-account ' : ''}pool used per hour, in ${bh}-hour blocks.` + (buckets.some((b) => b.partial && b.v > 0) ? ' The paler bar is still in progress.' : '');
+    svg.setAttribute('aria-label', `${label} use per hour over the last ${horizonText(horizonFor(w))}, as a share of the pool. Forecast rate ${fmtRate(m)}. Use the arrow keys to read values.`);
+  }
+
+  // Tooltip
+  function hideTip() {
+    clearTimeout(liveTimer);
+    const tip = $('tooltip');
+    tip.hidden = true;
+    const cross = $('cross'), dot = $('cross-dot'), hb = $('hover-bar');
+    if (cross) cross.setAttribute('visibility', 'hidden');
+    if (dot) dot.setAttribute('visibility', 'hidden');
+    if (hb) hb.setAttribute('visibility', 'hidden');
+  }
+  function nearestIndex(t) {
+    const pts = chartPoints.pts;
+    let best = -1, bd = Infinity;
+    for (let i = 0; i < pts.length; i++) { const d = Math.abs(pts[i].t - t); if (d < bd) { bd = d; best = i; } }
+    return best;
+  }
+  function showPoint(i) {
+    if (!chartPoints || i < 0 || i >= chartPoints.pts.length) return;
+    chartIndex = i;
+    const { pts, sx, sy, W, H, mg, kind } = chartPoints;
+    const p = pts[i];
+    const tip = $('tooltip');
+    const svg = $('chart-svg');
+    const r = svg.getBoundingClientRect();
+    const scale = r.width / W || 1;
+    let cx;
+    if (kind === 'remaining') {
+      cx = sx(p.t);
+      const cy = sy(p.s);
       const cross = $('cross'), dot = $('cross-dot');
-      if (cross) { cross.setAttribute('visibility', 'hidden'); dot.setAttribute('visibility', 'hidden'); }
-    };
+      cross.setAttribute('x1', cx); cross.setAttribute('x2', cx); cross.setAttribute('visibility', 'visible');
+      dot.setAttribute('cx', cx); dot.setAttribute('cy', cy); dot.setAttribute('visibility', 'visible');
+      let h = `<div class="tt-time">${esc(fmtWhen(p.t))} · ${esc(p.kind.toLowerCase())}</div><div class="tt-val">${pct(p.s)} of pool left</div>` +
+        `<div class="tt-sub">${fmtAccounts(p.units)} of ${plural(Math.round(p.cap), 'account')}</div>`;
+      if (p.from !== null && p.from !== undefined) h += `<div class="tt-sub">Pool went from ${p.from} to ${plural(Math.round(p.cap), 'account')}</div>`;
+      if (p.assumed) h += `<div class="tt-sub">Includes ${plural(p.assumed, 'assumed reset')}</div>`;
+      tip.innerHTML = h;
+    } else {
+      const left = Math.max(mg.l, sx(p.k)), right = Math.min(W - mg.r, sx(p.end));
+      cx = (left + right) / 2;
+      const hb = $('hover-bar');
+      hb.setAttribute('x', left); hb.setAttribute('width', Math.max(1, right - left)); hb.setAttribute('visibility', 'visible');
+      const endLbl = new Date(p.end).toLocaleTimeString(undefined, { hour: 'numeric' });
+      tip.innerHTML = `<div class="tt-time">${esc(fmtWhen(p.k))} to ${esc(endLbl)}${p.partial ? ' · so far' : ''}</div><div class="tt-val">${fmtPct1(p.v)} of the pool per hour</div>`;
+    }
+    tip.hidden = false;
+    const tw = tip.offsetWidth;
+    const px = cx * scale;
+    let x = px > r.width / 2 ? px - tw - 12 : px + 12;
+    x = Math.max(0, Math.min(x, r.width - tw));
+    tip.style.left = x + 'px';
+    tip.style.top = (mg.t * scale + 4) + 'px';
+    clearTimeout(liveTimer);
+    const said = [...tip.children].map((d) => d.textContent).join('. ');
+    liveTimer = setTimeout(() => { if ($('chart-live').textContent !== said) $('chart-live').textContent = said; }, 150);
+  }
+  function pointerToIndex(e) {
+    const svg = $('chart-svg');
+    const r = svg.getBoundingClientRect();
+    const { W, mg, x0, x1 } = chartPoints;
+    const xv = (e.clientX - r.left) * W / r.width;
+    const t = x0 + (xv - mg.l) / (W - mg.l - mg.r) * (x1 - x0);
+    return nearestIndex(t);
   }
 
-  function nowMarker(x, m, H) {
-    return `<line x1="${x}" x2="${x}" y1="${m.t}" y2="${H - m.b}" stroke="var(--ink-3)" stroke-width="1" stroke-dasharray="3 3"/>` +
-      `<text x="${x + 4}" y="${m.t + 10}" class="axis">Now</text>`;
+  // ---------- Data table ----------
+  function renderDataTable() {
+    const table = $('data-table');
+    const w = currentWindow();
+    const m = model(w);
+    const label = WINDOWS[w].label;
+    const caption = (t) => { $('data-cap').textContent = t; };
+    if (!P.creds.length || (!m.history.length && !m.poolSize)) { caption('No data for this window.'); table.innerHTML = ''; return; }
+    if (prefs.tab === 'drain') {
+      const { buckets, bh } = drainBuckets(m);
+      const rows = buckets.slice().reverse().map((b) => `<tr><td>${esc(fmtDateTime(b.k))}</td><td>${bh} h${b.partial ? ', in progress' : ''}</td><td>${fmtPct1(b.v)}</td></tr>`).join('');
+      caption(`${label} use per hour as a share of the pool, newest first.`);
+      table.innerHTML = `<thead><tr><th scope="col">Block start</th><th scope="col">Length</th><th scope="col">Used per hour</th></tr></thead><tbody>${rows}</tbody>`;
+      return;
+    }
+    const range = horizonFor(w);
+    const step = range <= 3 ? HOUR : range <= 7 ? 3 * HOUR : 6 * HOUR;
+    const x0 = m.now - range * DAY;
+    const hist = [];
+    let lastKey = null;
+    for (let i = m.history.length - 1; i >= 0; i--) {
+      const p = m.history[i];
+      if (p.t < x0) break;
+      const k = Math.floor(p.t / step);
+      if (k === lastKey) continue;
+      lastKey = k;
+      hist.push(p);
+    }
+    const row = (t, v, cap) => `<tr><td>${esc(fmtDateTime(t))}</td><td>${cap ? pct(v / cap * 100) : '-'}</td><td>${fmtAccounts(v / 100)}</td><td>${Math.round(cap / 100)}</td></tr>`;
+    let fc = '';
+    if (m.forecastable && m.capacity) {
+      const every = Math.max(1, Math.round(step / Math.min(10 * MIN, m.period / 30)));
+      fc = m.projection.filter((_, i) => i > 0 && i % every === 0).map((p) => row(p.t, p.v, m.capacity)).join('');
+    }
+    caption(`${label} pool, ${step / HOUR}-hour steps. Forecast first, then history, both starting from now.`);
+    table.innerHTML = '<thead><tr><th scope="col">Time</th><th scope="col">Pool left</th><th scope="col">Accounts left</th><th scope="col">Accounts in pool</th></tr></thead>' +
+      (fc ? `<tbody><tr><th scope="rowgroup" colspan="4">Forecast</th></tr>${fc}</tbody>` : '') +
+      `<tbody><tr><th scope="rowgroup" colspan="4">Recorded</th></tr>${hist.map((p) => row(p.t, p.v, p.cap)).join('')}</tbody>`;
   }
 
-  function showTip(tip, x, y, width) {
-    tip.style.display = 'block';
-    const w = tip.offsetWidth;
-    tip.style.left = Math.min(Math.max(0, x + 12), width - w) + 'px';
-    tip.style.top = Math.max(0, y - 46) + 'px';
-  }
-
-  function renderTable() {
-    const rows = prefs.tab === 'remaining'
-      ? [...model.history.map((p) => [fmtDate(p.t), 'recorded', pct(p.v), pct(p.cap)]),
-         ...model.projection.filter((_, i) => i % 6 === 0).map((p) => [fmtDate(p.t), 'projected', pct(p.v), pct(p.cap)])]
-      : model.consumption.map((c) => [fmtDate(c.t), 'used', c.amount.toFixed(1) + '%', '']);
-    const head = prefs.tab === 'remaining' ? '<tr><th>Time</th><th>Kind</th><th>Remaining</th><th>Capacity</th></tr>' : '<tr><th>Time</th><th>Kind</th><th>Amount</th><th></th></tr>';
-    $('data-table').innerHTML = head + rows.map((r) => '<tr>' + r.map((c) => '<td>' + esc(c) + '</td>').join('') + '</tr>').join('');
-  }
-
-  function windowCell(c, key) {
-    const win = c.status && c.status.usage ? c.status.usage[key] : null;
-    const label = WINDOWS[key].label + ' limit';
-    if (!win) return `<div class="win na"><div class="top"><span>${label}</span><b>-</b></div><div class="bar"><i style="width:0"></i></div><div class="when">not reported</div></div>`;
-    const rem = remainingOf(win, model.now);
-    const color = rem > 50 ? 'var(--good)' : rem > 15 ? 'var(--warn)' : 'var(--bad)';
-    const reset = win.resets_at ? Date.parse(win.resets_at) : NaN;
-    const when = isNaN(reset) ? '' : reset <= model.now ? 'reset ' + fmtIn(reset - model.now) : fmtIn(reset - model.now) + ' · ' + fmtDate(reset);
-    return `<div class="win"><div class="top"><span>${label}</span><b>${pct(rem)}</b></div><div class="bar" role="meter" aria-valuenow="${Math.round(rem)}" aria-valuemin="0" aria-valuemax="100" aria-label="${label} remaining"><i style="width:${rem}%;background:${color}"></i></div><div class="when" title="${esc(when)}">${esc(when)}</div></div>`;
-  }
-
+  // ---------- Credentials table ----------
+  let spShown = 1;
   function renderList() {
+    const w = currentWindow();
+    const cols = P.columnWin;
+    const m = model(w);
+    const now = P.now;
+    // Sparkline range: the chart's history range, ending now.
+    const histStart = m.history.length ? m.history[0].t : now;
+    const x0 = Math.min(Math.max(histStart, now - horizonFor(w) * DAY), now - HOUR);
+    const rangeLbl = x0 <= now - horizonFor(w) * DAY + MIN ? 'last ' + plural(horizonFor(w), 'day') : 'last ' + fmtDur(now - x0);
+    // One row gets a label: the single credential that used the most in the last 24 h.
+    const used = new Map();
+    for (const c of m.consumption) if (c.t >= now - DAY) used.set(c.id, (used.get(c.id) || 0) + c.amount);
+    const [most, next] = [...used].sort((x, y) => y[1] - x[1]);
+    const spark = { w, x0, x1: now, top: most && next && most[1] > next[1] ? most[0] : null, head: WINDOWS[w].label + ', ' + rangeLbl };
+    const head = $('cred-head');
+    head.parentElement.classList.toggle('w3', cols.length >= 3);
+    head.parentElement.classList.toggle('nospark', !P.samples.length);
+    // With no credentials the chart's message says what to do; an empty list card would repeat it.
+    head.closest('section').hidden = !P.creds.length;
+    head.innerHTML = P.creds.length
+      ? `<tr><th scope="col">Credential</th><th scope="col" class="sp">${esc(spark.head)}</th>` +
+        cols.map((x) => `<th scope="col" class="mc${x === w ? ' sel' : ''}"><span>${esc(WINDOWS[x].label)}</span></th>`).join('') +
+        '<th scope="col" class="act"><span class="sr-only">Actions</span></th></tr>'
+      : '';
     const q = $('search').value.trim().toLowerCase();
-    const w = prefs.window;
-    const remOf = (c) => { const r = remainingOf(c.status && c.status.usage ? c.status.usage[w] : null, model.now); return r === null ? -1 : r; };
-    const resetOf = (c) => { const win = c.status && c.status.usage ? c.status.usage[w] : null; const t = win && win.resets_at ? Date.parse(win.resets_at) : NaN; return isNaN(t) ? Infinity : t; };
-    let list = data.credentials.filter((c) => !q || c.name.toLowerCase().includes(q) || (c.email || '').toLowerCase().includes(q));
+    const remOf = (c) => { const r = remainingOf(usageOf(c, w), now); return r === null ? -1 : r; };
+    const resetOf = (c) => { const win = usageOf(c, w); const t = win ? parseT(win.resets_at) : NaN; return isNaN(t) || t <= now ? Infinity : t; };
+    let list = P.creds.filter((c) => !q || String(c.name || '').toLowerCase().includes(q) || String(c.email || '').toLowerCase().includes(q));
     if (prefs.sort === 'reset') list = [...list].sort((a, b) => resetOf(a) - resetOf(b));
     if (prefs.sort === 'remaining') list = [...list].sort((a, b) => remOf(b) - remOf(a));
     if (prefs.sort === 'least') list = [...list].sort((a, b) => remOf(a) - remOf(b));
-    if (!list.length) { $('cred-list').innerHTML = '<div class="empty">No Claude credentials match.</div>'; return; }
-    $('cred-list').innerHTML = list.map((c) => {
-      const cooldown = c.cooldown_until ? Date.parse(c.cooldown_until) - model.now : 0;
-      const state = c.disabled ? '<span class="err">disabled</span>' : cooldown > 0 ? `<span class="cool">back ${esc(fmtIn(cooldown))}</span>` : '';
-      const seen = c.status && c.status.fetched_at ? 'Last seen ' + esc(fmtDate(Date.parse(c.status.fetched_at))) : 'Not sampled yet';
-      const err = c.status && c.status.error ? `<div class="err" title="${esc(c.status.error)}">usage fetch failed${c.status.source ? ', using headers' : ''}</div>` : '';
-      return `<div class="cred">
-        <div style="min-width:0">
-          <div class="name" title="${esc(maskName(c.name, c.email))}">${esc(maskName(c.name, c.email))}</div>
-          <div class="meta">Claude${c.email ? ' · ' + esc(maskEmail(c.email)) : ''}${state ? ' · ' + state : ''}</div>
-          <div class="meta">${seen}</div>${err ? '<div class="meta">' + err + '</div>' : ''}
-        </div>
-        ${windowCell(c, 'seven_day')}${windowCell(c, 'five_hour')}${windowCell(c, 'fable')}
-        <div class="actions">
-          <button class="btn small" data-refresh="${esc(c.auth_index)}">&#8635; Refresh quota</button>
-          ${cooldown > 0 ? `<button class="btn small" data-reset="${esc(c.auth_index)}">Reset limits</button>` : ''}
-        </div>
-      </div>`;
-    }).join('');
+    $('cred-meta').textContent = q ? list.length + ' of ' + P.creds.length : String(P.creds.length || '');
+    const span = cols.length + 3;
+    spShown = (head.querySelector('th.sp') || {}).offsetWidth ? 1 : 0;
+    const body = $('cred-list');
+    const foot = $('cred-foot');
+    foot.hidden = true;
+    if (!P.creds.length) {
+      body.innerHTML = `<tr class="empty-row"><td colspan="${span}"><p>Nothing to list yet.</p></td></tr>`;
+      return;
+    }
+    if (!list.length) {
+      body.innerHTML = `<tr class="empty-row"><td colspan="${span}"><p class="msg-title">No credentials match "${esc($('search').value.trim())}"</p><p>Search looks at file names and email addresses.</p><div class="actions"><button type="button" class="btn sm" id="clear-search">Clear search</button></div></td></tr>`;
+      return;
+    }
+    body.innerHTML = list.map((c) => rowHtml(c, cols, w, spark)).join('');
+    if (body.querySelector('.bar > b')) {
+      foot.innerHTML = `<span class="tick-key" aria-hidden="true"></span><span>The tick on each ${esc(WINDOWS[w].label)} bar marks how much of that window's time is left. A bar that ends left of its tick is being used faster than an even pace.<span class="foot-spark"> The small charts show ${esc(WINDOWS[w].label)} left, ${esc(spark.head.split(', ').pop())}, on the same 0 to 100% scale.</span></span>`;
+      foot.hidden = false;
+    }
+    renderBusy();
+  }
+
+  function sparkCell(c, s, sp) {
+    const lbl = `<div class="m-label">${esc(sp.head)}</div>`;
+    const pts = [];
+    let before = null;
+    for (const { s: smp, t } of P.byId.get(c.id) || []) {
+      if (!smp[sp.w]) continue;
+      const v = remainingOf(smp[sp.w], t);
+      if (t < sp.x0) before = v; else pts.push({ t, v });
+    }
+    const cur = usageOf(c, sp.w);
+    if (cur && !s.disabled) pts.push({ t: sp.x1, v: remainingOf(cur, sp.x1) });
+    if (before !== null) pts.unshift({ t: sp.x0, v: before });
+    if (pts.length < 2) return `<td class="sp none">${lbl}<span class="m-na">No ${esc(WINDOWS[sp.w].label)} history</span></td>`;
+    const VW = 160, VH = 32;
+    const f1 = (n) => n.toFixed(1);
+    const sx = (t) => (t - sp.x0) / (sp.x1 - sp.x0) * VW;
+    const sy = (v) => 2 + (100 - v) / 100 * (VH - 4);
+    let d = '';
+    if (pts.length > 2 * VW) {
+      // One first/min/max/last column per viewBox unit keeps peaks without drawing every sample.
+      const colsMap = new Map();
+      for (const p of pts) {
+        const k = Math.max(0, Math.min(VW - 1, Math.floor(sx(p.t))));
+        const col = colsMap.get(k);
+        if (!col) colsMap.set(k, { first: p.v, min: p.v, max: p.v, last: p.v });
+        else { col.min = Math.min(col.min, p.v); col.max = Math.max(col.max, p.v); col.last = p.v; }
+      }
+      [...colsMap.keys()].sort((a, b) => a - b).forEach((k, i) => {
+        const q = colsMap.get(k);
+        d += (i ? `H${k}` : `M${k},${f1(sy(q.first))}`) + `V${f1(sy(q.first))}V${f1(sy(q.max))}V${f1(sy(q.min))}V${f1(sy(q.last))}`;
+      });
+      d += `H${f1(sx(pts[pts.length - 1].t))}`;
+    } else {
+      d = pts.map((p, i) => (i ? `H${f1(sx(p.t))}V${f1(sy(p.v))}` : `M${f1(sx(p.t))},${f1(sy(p.v))}`)).join('');
+    }
+    const xs = f1(sx(pts[0].t));
+    const lo = Math.min(...pts.map((p) => p.v));
+    const aria = `${WINDOWS[sp.w].label} left, ${sp.head.split(', ').pop()}: from ${pct(pts[0].v)}, lowest ${pct(lo)}, ${s.disabled ? 'last known' : 'now'} ${pct(pts[pts.length - 1].v)}`;
+    const svg = `<svg class="spark${s.disabled ? ' off' : ''}" viewBox="0 0 ${VW} ${VH}" preserveAspectRatio="none" role="img" aria-label="${esc(aria)}">` +
+      `<line x1="0" x2="${VW}" y1="${VH - 2}" y2="${VH - 2}" class="sp-base"/>` +
+      `<line x1="0" x2="${VW}" y1="2" y2="2" class="sp-top"/>` +
+      `<path d="${d}V${VH - 2}H${xs}Z" class="sp-area"/>` +
+      `<path d="${d}" class="sp-line"/></svg>`;
+    const cap = c.id === sp.top ? '<div class="spark-cap">Used the most today</div>' : '';
+    return `<td class="sp">${lbl}<div class="spark-wrap">${svg}${cap}</div></td>`;
+  }
+
+  function rowHtml(c, cols, w, sp) {
+    const s = credState(c);
+    const name = displayName(c);
+    const hex = P.codes.get(c);
+    const meta = [];
+    if (P.dups.has(c)) meta.push(`<code>${esc(hex)}</code>`);
+    let err = '';
+    if (s.error) {
+      const extra = s.error.headers ? ' Using rate-limit headers, which have no 7-day Fable data.' : '';
+      const [head, msg] = errParts(maskText(s.error.text));
+      err = `<details${openErrs.has('row-' + c.auth_index) ? ' open' : ''}><summary class="who-err">${icon('alert')}<span>Usage${NB}API${esc(head)} <u>Details</u></span></summary><p class="err-full">${esc(msg)}.${esc(extra)}</p></details>`;
+    }
+    const rowErr = rowErrors.get(c.auth_index);
+    // Status sits inline after the hex id; a healthy row has no badge.
+    if (s.disabled) meta.push(`<span class="badge">${icon('ban')}Disabled</span>`, s.fetched ? `<span>last data ${esc(fmtDateTime(s.fetched))}</span>` : '');
+    if (s.cooldown) meta.push(`<span class="badge bad">${icon('clock')}Cooling down</span>`, `<span>back${NB}in${NB}${esc(fmtDur(s.cooldown.left))}, ${esc(fmtWhen(s.cooldown.until, true))}</span>`,
+      `<button type="button" class="btn sm" data-reset="${esc(c.auth_index)}" title="Lets the proxy route to this credential again. Does not change the Anthropic limit.">Clear cooldown</button>`);
+    if (s.error) { meta.push(`<span class="badge warn">${icon('alert')}Fetch failed</span>`); if (s.stale) meta.push(`<span>for ${esc(fmtDur(s.stale))}</span>`); }
+    else if (s.stale && !s.disabled) meta.push(`<span class="badge warn">${icon('clock')}Stale</span>`, `<span>last sample ${esc(fmtDur(s.stale))} ago</span>`);
+    if (s.never && !s.disabled) meta.push(`<span class="badge">${icon('dashed')}Not sampled yet</span>`);
+    if (c.id === sp.top) meta.push('<span class="spark-cap">Used the most today</span>');
+    const muted = isMuted(s);
+    const cells = s.never ? '' : cols.map((x) => meterCell(c, x, x === w, muted, s)).join('');
+    return `<tr class="${s.disabled ? 'off' : ''}" id="row-${esc(c.auth_index)}">
+      <th scope="row" class="who"><div class="who-name${prefs.emails ? '' : ' masked'}" title="${esc(maskText(c.name || ''))}">${prefs.emails ? esc(name).replace('@', '<wbr>@') : esc(name)}</div><div class="who-meta">${meta.join('')}</div>${err}${rowErr ? `<div class="who-err bad" role="alert">${icon('x')}<span>${esc(rowErr)}</span></div>` : ''}</th>
+      ${!s.never ? sparkCell(c, s, sp) + cells : cols.length + spShown ? `<td class="m-na" colspan="${cols.length + spShown}">No data yet</td>` : ''}
+      <td class="act"><div class="act-wrap"><button type="button" class="btn sm icon ghost" data-refresh="${esc(c.auth_index)}" aria-label="Refresh quota for ${esc(name + (P.dups.has(c) ? ' ' + hex : ''))}" title="Refresh quota">${icon('refresh', 'spin')}</button></div></td>
+    </tr>`;
+  }
+
+  function meterCell(c, x, selected, muted, s) {
+    const label = WINDOWS[x].label;
+    const lbl = `<div class="m-label${selected ? ' sel' : ''}">${esc(label)}</div>`;
+    const win = usageOf(c, x);
+    if (!win) return `<td class="mc">${lbl}<span class="m-na">Not reported</span></td>`;
+    const now = P.now;
+    const assumed = isAssumed(s, win, now);
+    if (assumed) muted = true;
+    const rem = remainingOf(win, now);
+    const r = Math.round(rem);
+    const level = s.disabled ? 'off' : muted ? 'muted' : r === 0 ? 'empty' : rem <= 10 ? 'bad' : rem <= 25 ? 'warn' : 'ok';
+    const reset = parseT(win.resets_at);
+    let when = '', whenText = '';
+    if (!s.disabled && !isNaN(reset)) {
+      if (reset <= now) { const pre = assumed ? 'assumed reset ' : 'reset ', ago = fmtDur(now - reset) + ' ago'; whenText = pre + ago; when = pre + nw(ago); }
+      else { when = `<b>in${NB}${esc(fmtDur(reset - now))}</b>`; whenText = 'resets in ' + fmtDur(reset - now) + ', ' + fmtWhen(reset); }
+    }
+    // Text state so the level never depends on color alone.
+    const tag = s.disabled ? 'Last known' : muted ? '' : r === 0 ? 'Empty' : rem <= 25 ? 'Low' : '';
+    const tagHtml = tag ? `<span class="m-tag ${level}">${tag}</span>${when ? NB + '·' + NB : ''}` : '';
+    // Pace tick on the charted window: the share of the window's time still to run.
+    const period = WINDOWS[x].period;
+    const pace = selected && !s.disabled && !isNaN(reset) && reset > now ? clampPct((reset - now) / period * 100) : null;
+    const tick = pace !== null ? `<b style="left:${pace.toFixed(1)}%"></b>` : '';
+    const paceText = pace !== null ? `, ${Math.round(pace)}% of the window's time left` : '';
+    const state = s.disabled ? ', last known, disabled' : assumed ? ', assumed' : r === 0 ? ', empty' : muted ? ', stale' : rem <= 25 ? ', low' : '';
+    return `<td class="mc"${whenText.startsWith('resets') ? ` title="${esc(whenText.charAt(0).toUpperCase() + whenText.slice(1))}"` : ''}>${lbl}<div class="m-top"><span class="m-val ${level}">${r}%</span><div class="bar ${level}" role="meter" aria-label="${esc(label)} left" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${r}" aria-valuetext="${r}% left${state}${whenText ? ', ' + esc(whenText) : ''}${paceText}"><i style="width:${rem.toFixed(1)}%"></i>${tick}</div></div><div class="m-when">${tagHtml}${when || (tagHtml ? '' : '&nbsp;')}</div></td>`;
   }
 
   // ---------- Events ----------
-  function applyTheme() { document.documentElement.classList.toggle('light', prefs.theme === 'light'); }
   function bindSelect(id, key, numeric) {
-    const el = $(id);
-    el.value = String(prefs[key]);
-    el.addEventListener('change', () => { prefs[key] = numeric ? Number(el.value) : el.value; savePrefs(); if (data) render(); });
+    $(id).addEventListener('change', (e) => {
+      const v = numeric ? Number(e.target.value) : e.target.value;
+      setPref(key, v);
+      if (key === 'window') windowChosen = true;
+      if (data) render(); else applyChrome();
+    });
   }
 
-  $('login-form').addEventListener('submit', (e) => {
+  $('login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    localStorage.setItem(KEY_STORE, $('key-input').value.trim());
-    load();
+    if ($('login-submit').getAttribute('aria-disabled') === 'true') return;
+    const key = $('key-input').value.trim();
+    if (!key) { setLoginError('Enter a management key.'); $('key-input').focus(); return; }
+    localStorage.setItem(KEY_STORE, key);
+    setLoginBusy(true);
+    setLoginError('');
+    await load();
+    setLoginBusy(false);
   });
-  $('logout-btn').addEventListener('click', () => { localStorage.removeItem(KEY_STORE); showLogin(''); });
-  $('theme-btn').addEventListener('click', () => { prefs.theme = prefs.theme === 'light' ? 'dark' : 'light'; savePrefs(); applyTheme(); if (data) render(); });
-  $('emails-btn').addEventListener('click', () => { prefs.emails = !prefs.emails; savePrefs(); render(); });
-  $('refresh-all-btn').addEventListener('click', (e) => refresh('', e.currentTarget));
+  $('key-input').addEventListener('input', () => { if ($('key-input').getAttribute('aria-invalid') === 'true') setLoginError(''); });
+  $('logout-btn').addEventListener('click', () => { localStorage.removeItem(KEY_STORE); $('key-input').value = ''; showLogin(''); });
+  $('theme-btn').addEventListener('click', () => { setPref('theme', prefs.theme === 'light' ? 'dark' : 'light'); if (data) render(); else applyChrome(); });
+  $('emails-btn').addEventListener('click', () => { setPref('emails', !prefs.emails); if (data) render(); else applyChrome(); });
+  $('refresh-all-btn').addEventListener('click', () => { if (data) refresh(''); else load(); });
   $('settings-btn').addEventListener('click', () => {
-    const on = $('settings').classList.toggle('on');
-    $('settings-btn').innerHTML = (on ? '&#9662;' : '&#9656;') + ' Forecast settings';
+    const panel = $('settings');
+    panel.hidden = !panel.hidden;
+    $('settings-btn').setAttribute('aria-expanded', String(!panel.hidden));
   });
-  document.querySelectorAll('.tab').forEach((el) => el.addEventListener('click', () => { prefs.tab = el.dataset.tab; savePrefs(); render(); }));
-  $('search').addEventListener('input', () => data && renderList());
-  $('cred-list').addEventListener('click', (e) => {
-    const r = e.target.closest('[data-refresh]');
-    if (r) return refresh(r.dataset.refresh, r);
-    const x = e.target.closest('[data-reset]');
-    if (x) resetCooldown(x.dataset.reset, x);
+  $('table-btn').addEventListener('click', () => { const d = $('table-panel'); d.open = !d.open; });
+  $('table-panel').addEventListener('toggle', () => {
+    const open = $('table-panel').open;
+    $('table-btn').setAttribute('aria-expanded', String(open));
+    $('table-btn').setAttribute('aria-label', open ? 'Hide data table' : 'Show data table');
   });
+  document.querySelectorAll('[data-tab]').forEach((el) => el.addEventListener('click', () => { setPref('tab', el.dataset.tab); if (data) render(); else applyChrome(); }));
+  $('search').addEventListener('input', () => { if (data) renderList(); });
+  document.addEventListener('click', (e) => {
+    const t = e.target.closest('button');
+    if (!t || !$('app').contains(t)) return;
+    if (t.dataset.refresh) return refresh(t.dataset.refresh);
+    if (t.dataset.reset) return resetCooldown(t.dataset.reset);
+    if (t.dataset.window || t.dataset.pick) {
+      const w = t.dataset.window || t.dataset.pick;
+      setPref('window', w);
+      windowChosen = true;
+      render();
+      if (t.dataset.pick) $('window-select').focus({ preventScroll: true });
+      return;
+    }
+    if (t.dataset.act === 'reset' || t.dataset.act === 'retry') {
+      if (t.getAttribute('aria-disabled') === 'true') return;
+      for (const id of t.dataset.ids.split(' ')) (t.dataset.act === 'reset' ? resetCooldown : refresh)(id);
+      return;
+    }
+    if (t.dataset.fetch) return refresh('');
+    if (t.dataset.goto) return goTo(t.dataset.goto);
+    if (t.id === 'retry-btn' || t.id === 'retry-btn2') return load();
+    if (t.id === 'change-key-btn') { localStorage.removeItem(KEY_STORE); return showLogin(''); }
+    if (t.id === 'clear-search') { $('search').value = ''; renderList(); $('search').focus(); }
+  });
+  $('cred-list').addEventListener('toggle', (e) => openErrs[e.target.open ? 'add' : 'delete'](e.target.closest('tr').id), true);
+  // Jump from the credentials tile to a row and put focus on its refresh button.
+  function goTo(authIndex) {
+    const sel = `[data-refresh="${CSS.escape(authIndex)}"]`;
+    if (!document.querySelector(sel) && $('search').value) { $('search').value = ''; renderList(); }
+    const btn = document.querySelector(sel);
+    if (!btn) return;
+    const row = btn.closest('tr');
+    row.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    btn.focus({ preventScroll: true });
+    row.classList.add('flash');
+    setTimeout(() => row.classList.remove('flash'), 1600);
+  }
+
+  // Clicking anywhere on a window tile selects it.
+  $('tiles').addEventListener('click', (e) => {
+    if (e.target.closest('button')) return;
+    const tile = e.target.closest('.tile.pick');
+    const b = tile && tile.querySelector('[data-window]');
+    if (b) b.click();
+  });
+
+  // Chart hover and keyboard reading.
+  const svgEl = $('chart-svg');
+  svgEl.addEventListener('pointermove', (e) => { if (chartPoints && chartPoints.pts.length) showPoint(pointerToIndex(e)); });
+  svgEl.addEventListener('pointerdown', (e) => { if (chartPoints && chartPoints.pts.length) showPoint(pointerToIndex(e)); });
+  // A touch lifts with pointerleave before focus lands, so only a mouse leaving hides the readout.
+  svgEl.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse' && document.activeElement !== svgEl) hideTip(); });
+  svgEl.addEventListener('blur', hideTip);
+  // A swipe that starts on the chart scrolls the page: the browser cancels the pointer, so drop the readout.
+  svgEl.addEventListener('pointercancel', hideTip);
+  addEventListener('scroll', () => { if (document.activeElement !== svgEl) hideTip(); }, { passive: true });
+  svgEl.addEventListener('keydown', (e) => {
+    if (!chartPoints || !chartPoints.pts.length) return;
+    const n = chartPoints.pts.length;
+    let i = chartIndex;
+    if (i < 0) i = chartPoints.kind === 'remaining' ? Math.max(0, chartPoints.pts.findIndex((p) => p.kind === 'Now')) : n - 1;
+    const big = Math.max(1, Math.round(n / 20));
+    if (e.key === 'ArrowRight') i = Math.min(n - 1, i + (e.shiftKey ? big : 1));
+    else if (e.key === 'ArrowLeft') i = Math.max(0, i - (e.shiftKey ? big : 1));
+    else if (e.key === 'PageUp') i = Math.max(0, i - big);
+    else if (e.key === 'PageDown') i = Math.min(n - 1, i + big);
+    else if (e.key === 'Home') i = 0;
+    else if (e.key === 'End') i = n - 1;
+    else if (e.key === 'Escape') { hideTip(); chartIndex = -1; return; }
+    else return;
+    e.preventDefault();
+    showPoint(i);
+  });
+
   bindSelect('window-select', 'window');
   bindSelect('horizon-select', 'horizon', true);
   bindSelect('lookback-select', 'lookback', true);
   bindSelect('order-select', 'order');
   bindSelect('sort-select', 'sort');
   let resizeTimer;
-  window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => data && renderChart(), 100); });
-  setInterval(() => { if (data && !document.hidden) load(); }, 60e3);
+  window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => {
+    if (!data || $('app').hidden) return;
+    renderChart();
+    const sp = document.querySelector('#cred-head th.sp');
+    if (sp && (sp.offsetWidth ? 1 : 0) !== spShown) renderList();
+  }, 100); });
+  setInterval(() => {
+    if (document.hidden || $('app').hidden || !localStorage.getItem(KEY_STORE)) return;
+    load();
+  }, 60e3);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && !$('app').hidden && localStorage.getItem(KEY_STORE) && Date.now() - lastOkAt > 60e3) load();
+  });
 
-  applyTheme();
-  if (localStorage.getItem(KEY_STORE) === null) showLogin(''); else load();
+  applyChrome();
+  if (localStorage.getItem(KEY_STORE) === null) showLogin('');
+  else { showApp(); loading = true; render(); load(); }
 })();
 </script>
 </body>
