@@ -1402,12 +1402,12 @@
         sub: 'In ' + nw(fmtDur(m.runout - m.now)) + ' at ' + pace(prefs.lookback) + '.' + (m.fast ? ' Sooner at ' + pace(m.fast.lookback) + ': ' + nw(fmtWhen(m.fast.runout, true)) + '.' : '') };
     }
     if (m.fast) {
-      return { kind: 'warn', icon: 'alert', head: 'Lasts at ' + pace(prefs.lookback), sub: 'Could run out ' + nw(fmtWhen(m.fast.runout)) + ' at ' + pace(m.fast.lookback) };
+      return { kind: 'warn', icon: 'alert', head: 'Lasts at ' + pace(prefs.lookback), short: 'May run out early', sub: 'Could run out ' + nw(fmtWhen(m.fast.runout)) + ' at ' + pace(m.fast.lookback) };
     }
     if (m.unsure && m.unsure.runout === null) return { kind: 'neutral', icon: 'info', head: 'No forecast yet', sub: 'Not measured since the reset' };
     if (m.unsure) {
       const n = m.unsure.members.length, head = 'Could run out ' + nw(fmtWhen(m.unsure.runout));
-      return { kind: 'warn', icon: 'alert', head,
+      return { kind: 'warn', icon: 'alert', head, short: 'May run out early',
         sub: 'Without ' + (n === 1 ? esc(shortName(m.unsure.members[0].c)) + ', whose reset is assumed' : n + ' credentials whose resets are assumed') };
     }
     // Another window that runs out inside this one's horizon is the real limit, so this one is not green.
@@ -1515,16 +1515,16 @@
     } else {
       lines = probs.map(single);
     }
-    const inPool = creds.length - probs.filter((p) => p.kind === 'disabled').length;
+    const active = creds.length - probs.filter((p) => p.kind === 'disabled').length;
     // A failing usage fetch still serves requests, so only cooldowns cut the working count.
-    const working = inPool - probs.filter((p) => p.kind === 'cooldown').length;
+    const working = active - probs.filter((p) => p.kind === 'cooldown').length;
     let body;
     if (!creds.length) body = '<div class="tile-sub">Add a Claude auth file to the proxy and it shows up here.</div>';
     else if (!probs.length) body = `<p class="all-ok">${icon('check')}${creds.length === 1 ? 'Working, nothing needs attention' : 'All ' + creds.length + ' working, nothing needs attention'}</p>`;
     else body = `<ul class="probs" aria-label="Problems">${lines.join('')}</ul>`;
     return `<div class="tile creds-tile${probs.length ? '' : ' ok'}">
       <div class="tile-head"><h3>Credentials</h3></div>
-      <div class="tile-value"><span class="big${creds.length ? '' : ' muted'}">${creds.length}</span><span class="unit">${!creds.length ? 'configured' : esc((inPool === creds.length ? 'in pool' : inPool + ' in pool') + (working < inPool ? ' · ' + working + ' working' : ''))}</span></div>
+      <div class="tile-value"><span class="big${creds.length ? '' : ' muted'}">${creds.length}</span><span class="unit">${!creds.length ? 'configured' : esc((active === creds.length ? 'active' : active + ' active') + (working < active ? ' · ' + working + ' working' : ''))}</span></div>
       ${body}
     </div>`;
   }
@@ -1941,7 +1941,7 @@
       cross.setAttribute('x1', cx); cross.setAttribute('x2', cx); cross.setAttribute('visibility', 'visible');
       dot.setAttribute('cx', cx); dot.setAttribute('cy', cy); dot.setAttribute('visibility', 'visible');
       let h = `<div class="tt-time">${esc(fmtWhen(p.t))} · ${esc(p.kind.toLowerCase())}</div><div class="tt-val">${pct(p.s)} of pool left</div>` +
-        `<div class="tt-sub">${fmtAccounts(p.units)} of ${plural(Math.round(p.cap), 'account')}</div>`;
+        `<div class="tt-sub">About ${fmtAccounts(Math.max(0, p.units))} of ${plural(Math.round(p.cap), 'account')}</div>`;
       if (p.from !== null && p.from !== undefined) h += `<div class="tt-sub">Pool went from ${p.from} to ${plural(Math.round(p.cap), 'account')}</div>`;
       if (p.assumed) h += `<div class="tt-sub">Includes ${plural(p.assumed, 'assumed reset')}</div>`;
       tip.innerHTML = h;
