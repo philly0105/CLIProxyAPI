@@ -13,7 +13,7 @@ var quotaDashboardHTML []byte
 // serveQuotaDashboard serves the Claude quota dashboard page. Data comes from the management
 // API, so the page itself holds nothing secret; it follows the control panel's availability.
 func (s *Server) serveQuotaDashboard(c *gin.Context) {
-	cfg := s.cfg
+	cfg := s.getConfig()
 	if cfg == nil || cfg.Home.Enabled || cfg.RemoteManagement.DisableControlPanel {
 		c.AbortWithStatus(http.StatusNotFound)
 		return
